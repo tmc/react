@@ -2,6 +2,7 @@ const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const path = require('path');
 const fs = require('fs');
+const { execSync } = require('child_process');
 
 puppeteer.use(StealthPlugin());
 
@@ -14,37 +15,49 @@ function debugLog(component, message) {
   }
 }
 
-async function captureFullPageScreenshot(page, filename) {
-  const client = await page.target().createCDPSession();
-  
-  try {
-    // Get the browser window size
-    const { windowWidth, windowHeight } = await client.send('Browser.getWindowForTarget');
-    
-    // Capture the full screenshot
-    const { data } = await client.send('Page.captureScreenshot', {
-      format: 'png',
-      clip: { 
-        x: 0, 
-        y: 0, 
-        width: windowWidth || 1920, 
-        height: windowHeight || 1080, 
-        scale: 1 
-      }
-    });
-
-    fs.writeFileSync(filename, Buffer.from(data, 'base64'));
-    debugLog('Test', `Full window screenshot saved as ${filename}`);
-  } catch (error) {
-    debugLog('Test', `Error capturing full page screenshot: ${error.message}`);
-    
-    // Fallback to capturing the viewport
-    try {
-      const screenshot = await page.screenshot({ path: filename, fullPage: true });
-      debugLog('Test', `Fallback screenshot saved as ${filename}`);
-    } catch (fallbackError) {
-      debugLog('Test', `Error capturing fallback screenshot: ${fallbackError.message}`);
+function getDisplays() {
+  const displayInfo = execSync('system_profiler SPDisplaysDataType -json').toString();
+  const displays = JSON.parse(displayInfo).SPDisplaysDataType[0].spdisplays_ndrvs;
+  console.log('displays', JSON.stringify(displays, null, 2));
+  return displays.map((display, index) => {
+    let width, height;
+    if (display._spdisplays_pixels) {
+      [width, height] = display._spdisplays_pixels.split(' x ').map(Number);
+    } else if (display.spdisplays_resolution) {
+      [width, height] = display.spdisplays_resolution.split(' @ ')[0].split(' x ').map(Number);
+    } else {
+      console.warn(`Unable to determine dimensions for display ${index}`);
+      width = height = 0;
     }
+    return {
+      index,
+      width,
+      height,
+      name: display._name
+    };
+  });
+}
+
+async function captureScreenshot(page, filename) {
+  debugLog('Test', 'Capturing screenshot');
+
+  const windowSize = await page.evaluate(() => ({
+    width: window.outerWidth,
+    height: window.outerHeight,
+    left: window.screenX,
+    top: window.screenY
+  }));
+
+  await page.evaluate(() => window.focus());
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
+  try {
+    execSync(`screencapture -R${windowSize.left},${windowSize.top},${windowSize.width},${windowSize.height} ${filename}`);
+    debugLog('Test', `Screenshot saved as ${filename}`);
+  } catch (error) {
+    debugLog('Test', `Error capturing specific region: ${error.message}`);
+    debugLog('Test', 'Falling back to full screen capture');
+    execSync(`screencapture ${filename}`);
   }
 }
 
@@ -53,6 +66,15 @@ async function runTest() {
 
   const extensionPath = path.join(__dirname);
   debugLog('Test', `Extension path: ${extensionPath}`);
+
+  const displays = getDisplays();
+  debugLog('Test', `Found ${displays.length} displays`);
+  displays.forEach((display, index) => {
+    debugLog('Test', `Display ${index}: ${display.name} (${display.width}x${display.height})`);
+  });
+
+  const targetDisplay = displays.length > 1 ? displays[1] : displays[0];
+  debugLog('Test', `Using display: ${JSON.stringify(targetDisplay)}`);
 
   let browser;
   try {
@@ -64,73 +86,21 @@ async function runTest() {
         `--disable-extensions-except=${extensionPath}`,
         `--load-extension=${extensionPath}`,
         '--auto-open-devtools-for-tabs',
-        '--start-maximized',
-        '--window-position=1921,0',  // Adjust these values based on your setup
-        '--window-size=1920,1080'    // Adjust these values based on your setup
+        `--window-position=${targetDisplay.index * targetDisplay.width},0`,
+        `--window-size=${targetDisplay.width},${targetDisplay.height}`,
       ],
+      devtools: true,
     });
 
     debugLog('Test', 'Opening new page');
     const page = await browser.newPage();
 
-    // Enable the debugger for the page
-    const client = await page.target().createCDPSession();
-    await client.send('Debugger.enable');
-
-    // Capture console logs
-    client.on('Runtime.consoleAPICalled', (params) => {
-      const { type, args } = params;
-      const text = args.map(arg => arg.value || arg.description).join(' ');
-      debugLog('Browser Console', `${type.toUpperCase()} ${text}`);
-    });
-
     debugLog('Test', 'Navigating to React website');
     await page.goto('https://react.dev', { waitUntil: 'networkidle0', timeout: 30000 });
 
-    // Wait for a moment to ensure DevTools is fully loaded
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    await new Promise(resolve => setTimeout(resolve, 10000));
 
-    debugLog('Test', 'Checking window properties');
-    const windowProps = await page.evaluate(() => {
-      return {
-        hasReactDevToolsGlobalHook: '__REACT_DEVTOOLS_GLOBAL_HOOK__' in window,
-        hasMinimalReactDevToolsGlobalHook: '__MINIMAL_REACT_DEVTOOLS_GLOBAL_HOOK__' in window,
-        react: window.React ? window.React.version : 'not found',
-        reactDOM: window.ReactDOM ? window.ReactDOM.version : 'not found',
-        documentReadyState: document.readyState,
-        location: window.location.href,
-      };
-    });
-    debugLog('Test', `Window properties: ${JSON.stringify(windowProps, null, 2)}`);
-
-    debugLog('Test', 'Checking for React components');
-    const reactComponentsExist = await client.send('Runtime.evaluate', {
-      expression: `
-        (function() {
-          if (window.__REACT_DEVTOOLS_GLOBAL_HOOK__) {
-            return {
-              renderersSize: window.__REACT_DEVTOOLS_GLOBAL_HOOK__.renderers.size,
-              hookTypes: Object.keys(window.__REACT_DEVTOOLS_GLOBAL_HOOK__),
-            };
-          }
-          return null;
-        })()
-      `,
-      returnByValue: true,
-    });
-
-    debugLog('Test', `React components check result: ${JSON.stringify(reactComponentsExist.result.value, null, 2)}`);
-
-    debugLog('Test', 'Checking for Minimal React DevTools extension');
-    const extensionExists = await client.send('Runtime.evaluate', {
-      expression: 'typeof window.__MINIMAL_REACT_DEVTOOLS_GLOBAL_HOOK__ !== "undefined"',
-      returnByValue: true,
-    });
-
-    debugLog('Test', `Minimal React DevTools extension detected: ${extensionExists.result.value}`);
-
-    // Capture full window screenshot
-    await captureFullPageScreenshot(page, 'full_window_screenshot.png');
+    await captureScreenshot(page, 'puppeteer_window.png');
 
     debugLog('Test', 'Test completed successfully');
   } catch (error) {
@@ -145,9 +115,9 @@ async function runTest() {
 }
 
 const testTimeout = setTimeout(() => {
-  debugLog('Test', 'Test timed out after 30 seconds');
+  debugLog('Test', 'Test timed out after 60 seconds');
   process.exit(1);
-}, 30 * 1000);
+}, 60 * 1000);
 
 runTest().then(() => {
   clearTimeout(testTimeout);

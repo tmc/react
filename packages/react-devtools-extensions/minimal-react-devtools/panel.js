@@ -1,7 +1,10 @@
+console.log('Panel script loaded');
+
 let treeData = null;
 
-function updateTree(fiberRoot) {
-  treeData = fiberRoot;
+function updateTree(fiberRoots) {
+  console.log('Updating tree with fiber roots:', fiberRoots);
+  treeData = fiberRoots;
   renderTree();
 }
 
@@ -14,7 +17,7 @@ function renderTree() {
     element.className = 'component';
     element.style.paddingLeft = depth * 20 + 'px';
     element.textContent = node.name || 'Unknown';
-    element.onclick = () => getSource(node.id);
+    element.onclick = () => getSource(node.name);
     treeElement.appendChild(element);
 
     if (node.children) {
@@ -22,10 +25,15 @@ function renderTree() {
     }
   }
 
-  renderNode(treeData);
+  if (Array.isArray(treeData)) {
+    treeData.forEach(root => renderNode(root));
+  } else {
+    console.error('treeData is not an array:', treeData);
+  }
 }
 
 function getSource(id) {
+  console.log('Getting source for:', id);
   chrome.runtime.sendMessage({
     type: "get-source",
     tabId: chrome.devtools.inspectedWindow.tabId,
@@ -33,10 +41,22 @@ function getSource(id) {
   });
 }
 
+function getFiberRoots() {
+  console.log('Requesting fiber roots');
+  chrome.runtime.sendMessage({
+    type: "get-fiber-roots",
+    tabId: chrome.devtools.inspectedWindow.tabId
+  });
+}
+
 chrome.runtime.onMessage.addListener(function(message) {
-  if (message.type === 'updateTree') {
-    updateTree(message.payload);
+  console.log('Message received in panel:', message);
+  if (message.type === 'fiber-roots-result') {
+    updateTree(message.roots);
   } else if (message.type === 'source-result') {
     document.getElementById('source').textContent = message.source;
   }
 });
+
+// Initial request for fiber roots
+getFiberRoots();

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Minimal React DevTools",
+  "name": "Minimal React DevTools with Debug",
   "version": "1.0",
-  "description": "A minimal version of React DevTools",
+  "description": "A minimal version of React DevTools with debugging",
   "permissions": ["scripting", "storage", "tabs"],
   "host_permissions": ["<all_urls>"],
   "background": {

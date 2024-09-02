@@ -25,6 +25,7 @@ function updateTree() {
     element.textContent = displayName;
 
     element.onclick = () => {
+      console.log('Component clicked:', displayName);
       showDetails(node);
       highlightElement(node);
     };
@@ -46,6 +47,7 @@ function updateTree() {
 }
 
 function showDetails(node) {
+  console.log('Showing details for node:', node);
   const detailsElement = document.getElementById('details');
   detailsElement.innerHTML = '';
 
@@ -66,40 +68,43 @@ function showDetails(node) {
 }
 
 function highlightElement(node) {
-  console.log('highlightElement', node);
-  if (!node.stateNode || typeof node.stateNode !== 'object') return;
-
-  const nodeType = node.stateNode.nodeType;
-  console.log('highlightElement', nodeType);
-  if (nodeType !== 1 && nodeType !== 3) return; // Only highlight Element and Text nodes
-
+  console.log('Attempting to highlight node:', node);
   chrome.devtools.inspectedWindow.eval(`
-    (function() {
-      const node = $0;
-      if (node) {
-        node.style.outline = node.style.outline ? '' : '2px solid red';
-        node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    console.log('Eval in inspected window for highlighting');
+    window.postMessage({
+      source: 'react-devtools-extension',
+      payload: {
+        type: 'highlightNode',
+        fiber: ${JSON.stringify(node)}
       }
-    })()
-  `, { useContentScriptContext: true });
+    }, '*');
+  `, (result, isException) => {
+    if (isException) {
+      console.error('Error in inspectedWindow.eval:', isException);
+    } else {
+      console.log('inspectedWindow.eval result:', result);
+    }
+  });
 }
 
 window.addEventListener('message', (event) => {
   console.log('Panel received message:', event.data);
   if (event.data.type === 'commitFiberRoot') {
-    console.log('Commit fiber root detected, updating tree');
+    console.log('Received commitFiberRoot, updating tree');
     fiberRoot = event.data.root;
     updateTree();
   }
 });
 
 document.getElementById('refreshButton').addEventListener('click', () => {
+  console.log('Refresh button clicked');
   chrome.devtools.inspectedWindow.eval(
     'window.postMessage({ source: "minimal-react-devtools-content-script", payload: { type: "getFiberRoots" } }, "*");'
   );
 });
 
 // Initial request for fiber roots
+console.log('Sending initial getFiberRoots message');
 chrome.devtools.inspectedWindow.eval(
   'window.postMessage({ source: "minimal-react-devtools-content-script", payload: { type: "getFiberRoots" } }, "*");'
 );

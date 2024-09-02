@@ -1,168 +1,143 @@
 console.log('Minimal React DevTools Plus: Panel script loaded');
 
 let fiberRoot = null;
-let selectedNodeId = null;
+let isInspecting = false;
 
 function updateTree() {
   console.log('Updating tree with fiber root:', fiberRoot);
   const treeElement = document.getElementById('tree');
-  if (!treeElement) {
-    console.error('Tree element not found in the DOM');
-    return;
-  }
   treeElement.innerHTML = '';
 
+  function renderNode(node, depth = 0) {
+    if (!node) return;
+    const element = document.createElement('div');
+    element.className = 'tree-node';
+    element.style.paddingLeft = depth * 10 + 'px';
+
+    let displayName = node.type || node.elementType || 'Unknown';
+    if (typeof displayName === 'object') {
+      displayName = displayName.name || 'Anonymous';
+    }
+    if (displayName === 'Symbol(react.strict_mode)') {
+      displayName = 'StrictMode';
+    }
+    element.textContent = displayName;
+
+    element.onmouseover = () => {
+      console.log('Component hovered:', displayName);
+      chrome.devtools.inspectedWindow.eval(`
+        window.postMessage({
+          source: 'react-minimal-devtools-extension',
+          payload: {
+            type: 'highlightNode',
+            fiber: ${JSON.stringify(node)},
+            action: 'highlight'
+          }
+        }, '*');
+      `);
+    };
+
+    element.onmouseout = () => {
+      chrome.devtools.inspectedWindow.eval(`
+        window.postMessage({
+          source: 'react-minimal-devtools-extension',
+          payload: {
+            type: 'highlightNode',
+            fiber: ${JSON.stringify(node)},
+            action: 'removeHighlight'
+          }
+        }, '*');
+      `);
+    };
+
+    element.onclick = () => {
+      console.log('Component clicked:', displayName);
+      showDetails(node);
+    };
+
+    treeElement.appendChild(element);
+
+    if (node.child) {
+      renderNode(node.child, depth + 1);
+    }
+    if (node.sibling) {
+      renderNode(node.sibling, depth);
+    }
+  }
+
   if (fiberRoot) {
-    renderNode(fiberRoot, treeElement);
+    renderNode(fiberRoot);
   } else {
     treeElement.innerHTML = '<div>No React components detected</div>';
   }
 }
 
-function renderNode(node, parentElement, depth = 0) {
-  if (!node) return;
-
-  const element = document.createElement('div');
-  element.className = 'tree-node';
-  element.style.paddingLeft = `${depth * 20}px`;
-
-  let displayName = node.type || node.elementType || 'Unknown';
-  if (typeof displayName === 'object') {
-    displayName = displayName.name || 'Anonymous';
-  }
-  if (displayName === 'Symbol(react.strict_mode)') {
-    displayName = 'StrictMode';
-  }
-  element.textContent = displayName;
-  element.dataset.nodeId = node.id;
-
-  element.onmouseover = () => highlightElement(node);
-  element.onmouseout = () => removeHighlight();
-  element.onclick = (e) => {
-    e.stopPropagation();
-    selectNode(node);
-  };
-
-  parentElement.appendChild(element);
-
-  if (node.child) {
-    renderNode(node.child, parentElement, depth + 1);
-  }
-  if (node.sibling) {
-    renderNode(node.sibling, parentElement, depth);
-  }
-}
-
-function selectNode(node) {
-  if (selectedNodeId) {
-    const prevSelected = document.querySelector(`.tree-node[data-node-id="${selectedNodeId}"]`);
-    if (prevSelected) prevSelected.classList.remove('selected');
-  }
-  selectedNodeId = node.id;
-  const newSelected = document.querySelector(`.tree-node[data-node-id="${selectedNodeId}"]`);
-  if (newSelected) newSelected.classList.add('selected');
-  showDetails(node);
-}
-
 function showDetails(node) {
+  console.log('Showing details for node:', node);
   const detailsElement = document.getElementById('details');
-  if (!detailsElement) {
-    console.error('Details element not found in the DOM');
-    return;
-  }
   detailsElement.innerHTML = '';
 
   const pre = document.createElement('pre');
   pre.className = 'details';
-  const nodeDetails = { ...node };
-  delete nodeDetails.child;
-  delete nodeDetails.sibling;
-  pre.textContent = JSON.stringify(nodeDetails, null, 2);
+
+  const cleanNode = {...node};
+  delete cleanNode.child;
+  delete cleanNode.sibling;
+
+  pre.textContent = JSON.stringify(cleanNode, null, 2);
   detailsElement.appendChild(pre);
 }
 
-function highlightElement(node) {
-  chrome.devtools.inspectedWindow.eval(`
-    window.postMessage({
-      source: 'react-devtools-extension',
-      payload: {
-        type: 'highlightNode',
-        id: "${node.id}"
-      }
-    }, '*');
-  `);
-}
-
-function removeHighlight() {
-  chrome.devtools.inspectedWindow.eval(`
-    window.postMessage({
-      source: 'react-devtools-extension',
-      payload: {
-        type: 'clearHighlight'
-      }
-    }, '*');
-  `);
-}
-
-function setupSearch() {
-  const searchInput = document.getElementById('searchInput');
-  searchInput.addEventListener('input', (e) => {
-    const searchTerm = e.target.value.toLowerCase();
-    const treeNodes = document.querySelectorAll('.tree-node');
-    treeNodes.forEach(node => {
-      const text = node.textContent.toLowerCase();
-      node.style.display = text.includes(searchTerm) ? 'block' : 'none';
-    });
-  });
-}
-
-function setupInspector() {
-  const inspectButton = document.getElementById('inspectButton');
-  let isInspecting = false;
-
-  inspectButton.addEventListener('click', () => {
-    isInspecting = !isInspecting;
-    inspectButton.textContent = isInspecting ? 'Cancel inspection' : 'Select an element in the page to inspect it';
-
-    chrome.devtools.inspectedWindow.eval(`
-      window.postMessage({
-        source: 'react-devtools-extension',
-        payload: {
-          type: ${isInspecting ? '"startInspecting"' : '"stopInspecting"'}
-        }
-      }, '*');
-    `);
-  });
-}
-
-window.addEventListener('message', (event) => {
-  console.log('Panel received message:', event.data);
-  if (event.data.type === 'commitFiberRoot') {
-    console.log('Received commitFiberRoot, updating tree');
-    fiberRoot = event.data.root;
-    console.log('New fiber root:', fiberRoot);
-    updateTree();
-  } else if (event.data.type === 'selectNode') {
-    const node = findNodeById(fiberRoot, event.data.id);
-    if (node) {
-      selectNode(node);
+// Listen for messages from the injected script
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.source === 'react-minimal-devtools-extension') {
+    console.log('Panel received message:', message);
+    if (message.payload.type === 'commitFiberRoot') {
+      console.log('Received commitFiberRoot, updating tree');
+      fiberRoot = message.payload.root;
+      updateTree();
+    } else if (message.payload.type === 'inspectedElement') {
+      console.log('Received inspected element:', message.payload.element);
+      showDetails(message.payload.element);
     }
-  } else {
-    console.log('Received unknown message type:', event.data.type);
   }
 });
 
-function findNodeById(root, id) {
-  if (!root) return null;
-  if (root.id === id) return root;
-  let result = findNodeById(root.child, id);
-  if (result) return result;
-  return findNodeById(root.sibling, id);
+document.getElementById('inspectButton').addEventListener('click', () => {
+  isInspecting = !isInspecting;
+  const button = document.getElementById('inspectButton');
+
+  if (isInspecting) {
+    button.textContent = 'Cancel inspection';
+    button.style.backgroundColor = '#ff6b6b';
+    chrome.devtools.inspectedWindow.eval(
+      'window.postMessage({ source: "react-minimal-devtools-extension", payload: { type: "startInspecting" } }, "*");'
+    );
+  } else {
+    button.textContent = 'Select an element in the page to inspect it';
+    button.style.backgroundColor = '';
+    chrome.devtools.inspectedWindow.eval(
+      'window.postMessage({ source: "react-minimal-devtools-extension", payload: { type: "stopInspecting" } }, "*");'
+    );
+  }
+});
+
+// Request initial fiber roots when the panel is opened
+function initialize() {
+  chrome.devtools.inspectedWindow.eval(`
+    if (window.__REACT_DEVTOOLS_GLOBAL_HOOK__) {
+      window.__REACT_DEVTOOLS_GLOBAL_HOOK__.getFiberRoots().forEach(root => {
+        window.postMessage({
+          source: 'react-minimal-devtools-extension',
+          payload: {
+            type: 'commitFiberRoot',
+            root: window.__REACT_DEVTOOLS_GLOBAL_HOOK__.onCommitFiberRoot(null, root)
+          }
+        }, '*');
+      });
+    }
+  `);
 }
 
-// Initial setup
-updateTree();
-setupSearch();
-setupInspector();
-
-console.log('Panel script initialization complete');
+// Call initialize when the panel is opened
+initialize();

@@ -14,38 +14,6 @@ function debugLog(component, message) {
   }
 }
 
-async function captureMainPageScreenshot(page, filename) {
-  try {
-    await page.screenshot({ path: filename, fullPage: true });
-    debugLog('Test', `Screenshot saved as ${filename}`);
-  } catch (error) {
-    debugLog('Test', `Error capturing screenshot: ${error.message}`);
-  }
-}
-
-async function findDevToolsTarget(browser, maxAttempts = 5, delay = 1000) {
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    debugLog('Test', `Looking for DevTools target (attempt ${attempt}/${maxAttempts})`);
-    const targets = await browser.targets();
-    
-    for (const target of targets) {
-      const url = target.url();
-      debugLog('Test', `Checking target: ${url}`);
-      
-      if (url.includes('chrome-extension://') && url.includes('devtools.html')) {
-        debugLog('Test', `Found extension DevTools target: ${url}`);
-        return target;
-      }
-    }
-
-    if (attempt < maxAttempts) {
-      debugLog('Test', `DevTools target not found, waiting ${delay}ms before next attempt`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-  }
-  throw new Error('DevTools target not found after multiple attempts');
-}
-
 async function runTest() {
   debugLog('Test', 'Starting extension test');
 
@@ -68,9 +36,9 @@ async function runTest() {
     debugLog('Test', 'Opening new page');
     const page = await browser.newPage();
 
-    // Set up CDP session
+    // Enable the debugger for the page
     const client = await page.target().createCDPSession();
-    await client.send('Runtime.enable');
+    await client.send('Debugger.enable');
 
     // Capture console logs
     client.on('Runtime.consoleAPICalled', (params) => {
@@ -81,31 +49,6 @@ async function runTest() {
 
     debugLog('Test', 'Navigating to React website');
     await page.goto('https://react.dev', { waitUntil: 'networkidle0', timeout: 30000 });
-
-    debugLog('Test', 'Waiting for DevTools to initialize');
-    const devToolsInitialized = await page.evaluate(() => {
-      return new Promise(resolve => {
-        let attempts = 0;
-        const maxAttempts = 10;
-        const checkInterval = setInterval(() => {
-          attempts++;
-          if (window.__REACT_DEVTOOLS_GLOBAL_HOOK__) {
-            clearInterval(checkInterval);
-            resolve({ initialized: true, attempts });
-          }
-          if (attempts >= maxAttempts) {
-            clearInterval(checkInterval);
-            resolve({ initialized: false, attempts });
-          }
-        }, 500);
-      });
-    });
-
-    if (!devToolsInitialized.initialized) {
-      debugLog('Test', `DevTools did not initialize within ${devToolsInitialized.attempts} attempts`);
-    } else {
-      debugLog('Test', `DevTools initialized successfully after ${devToolsInitialized.attempts} attempts`);
-    }
 
     debugLog('Test', 'Checking window properties');
     const windowProps = await page.evaluate(() => {
@@ -119,8 +62,6 @@ async function runTest() {
       };
     });
     debugLog('Test', `Window properties: ${JSON.stringify(windowProps, null, 2)}`);
-
-    await captureMainPageScreenshot(page, 'main_page_screenshot.png');
 
     debugLog('Test', 'Checking for React components');
     const reactComponentsExist = await client.send('Runtime.evaluate', {
@@ -148,50 +89,54 @@ async function runTest() {
 
     debugLog('Test', `Minimal React DevTools extension detected: ${extensionExists.result.value}`);
 
-    debugLog('Test', 'Looking for DevTools target');
-    const devtoolsTarget = await findDevToolsTarget(browser);
+    // Use chrome.debugger API to interact with DevTools
+    debugLog('Test', 'Attaching debugger');
+    await client.send('Debugger.enable');
 
-    debugLog('Test', 'Attaching to DevTools page');
-    const devtoolsPage = await devtoolsTarget.page();
-    if (!devtoolsPage) {
-      throw new Error('Could not get DevTools page');
-    }
+    debugLog('Test', 'Getting document root');
+    const root = await client.send('DOM.getDocument');
+    debugLog('Test', `Document root: ${JSON.stringify(root, null, 2)}`);
 
-    const devtoolsClient = await devtoolsPage.target().createCDPSession();
-    await devtoolsClient.send('Runtime.enable');
-
-    debugLog('Test', 'Looking for Minimal React tab');
-    const minimalReactTabExists = await devtoolsClient.send('Runtime.evaluate', {
-      expression: 'document.querySelector(\'div[data-testid="Minimal React"]\') !== null',
-      returnByValue: true,
+    debugLog('Test', 'Searching for Minimal React tab');
+    const minimalReactTab = await client.send('DOM.querySelector', {
+      nodeId: root.root.nodeId,
+      selector: 'div[data-testid="Minimal React"]'
     });
 
-    if (!minimalReactTabExists.result.value) {
-      debugLog('Test', 'Minimal React tab not found');
-    } else {
+    if (minimalReactTab.nodeId) {
       debugLog('Test', 'Minimal React tab found');
-
+      
       debugLog('Test', 'Clicking Minimal React tab');
-      await devtoolsClient.send('Runtime.evaluate', {
-        expression: 'document.querySelector(\'div[data-testid="Minimal React"]\').click()',
-        awaitPromise: true,
+      await client.send('DOM.focus', { nodeId: minimalReactTab.nodeId });
+      await client.send('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        button: 'left',
+        clickCount: 1,
+      });
+      await client.send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        button: 'left',
+        clickCount: 1,
       });
 
       debugLog('Test', 'Checking for React components in DevTools');
-      const componentsExist = await devtoolsClient.send('Runtime.evaluate', {
-        expression: 'const componentsTree = document.querySelector("#tree"); componentsTree && componentsTree.children.length > 0',
-        returnByValue: true,
+      const componentsTree = await client.send('DOM.querySelector', {
+        nodeId: root.root.nodeId,
+        selector: '#tree'
       });
 
-      if (componentsExist.result.value) {
-        debugLog('Test', 'React components found in DevTools');
+      if (componentsTree.nodeId) {
+        const children = await client.send('DOM.getChildren', { nodeId: componentsTree.nodeId });
+        debugLog('Test', `React components found in DevTools: ${children.children.length}`);
       } else {
         debugLog('Test', 'No React components found in DevTools');
       }
+    } else {
+      debugLog('Test', 'Minimal React tab not found');
     }
 
-    debugLog('Test', 'Taking DevTools screenshot');
-    const screenshot = await devtoolsPage.screenshot({ fullPage: true });
+    debugLog('Test', 'Taking screenshot');
+    const screenshot = await page.screenshot({ fullPage: true });
     fs.writeFileSync('react_devtools_test.png', screenshot);
 
     debugLog('Test', 'Test completed successfully');

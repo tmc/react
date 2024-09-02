@@ -4,6 +4,29 @@ console.log('Minimal React DevTools Plus: Inject script loaded');
   const HOOK_NAME = '__MINIMAL_REACT_DEVTOOLS_GLOBAL_HOOK__';
   if (window[HOOK_NAME]) return;
 
+  function serializeFiber(fiber, depth = 0) {
+    if (!fiber || depth > 50) return null; // Limit depth to prevent circular references
+    const serialized = {
+      tag: fiber.tag,
+      key: fiber.key,
+      elementType: fiber.elementType ? (typeof fiber.elementType === 'string' ? fiber.elementType : fiber.elementType.name || String(fiber.elementType)) : null,
+      type: fiber.type ? (typeof fiber.type === 'string' ? fiber.type : fiber.type.name || String(fiber.type)) : null,
+      stateNode: fiber.stateNode ? (fiber.stateNode.constructor ? fiber.stateNode.constructor.name : 'Unknown') : null,
+      child: null,
+      sibling: null,
+    };
+
+
+    if (fiber.child) {
+      serialized.child = serializeFiber(fiber.child, depth + 1);
+    }
+    if (fiber.sibling) {
+      serialized.sibling = serializeFiber(fiber.sibling, depth + 1);
+    }
+
+    return serialized;
+  }
+
   const hook = {
     renderers: new Map(),
     supportsFiber: true,
@@ -11,35 +34,27 @@ console.log('Minimal React DevTools Plus: Inject script loaded');
       const id = Math.random().toString(16).slice(2);
       console.log('Renderer injected:', id);
       hook.renderers.set(id, renderer);
+      window.postMessage({ source: 'minimal-react-devtools-bridge', payload: { type: 'rendererInjected', id } }, '*');
     },
-    onCommitFiberRoot: function(rendererID, root, priorityLevel) {
+    onCommitFiberRoot:function(rendererID, root, priorityLevel) {
       console.log('Commit fiber root:', rendererID, root, priorityLevel);
-      sendMessage({ type: 'commitFiberRoot', rendererID, root: serializeFiber(root), priorityLevel });
-    },
-    onCommitFiberUnmount: function(rendererID, fiber) {
-      console.log('Commit fiber unmount:', rendererID, fiber);
-      sendMessage({ type: 'commitFiberUnmount', rendererID, fiber: serializeFiber(fiber) });
+      const serializedRoot = serializeFiber(root.current);
+      window.postMessage({ source: 'minimal-react-devtools-bridge', payload: { type: 'commitFiberRoot', rendererID, root: serializedRoot, priorityLevel } }, '*');
     },
     getFiberRoots: function(rendererID) {
-      const renderer = hook.renderers.get(rendererID);
-      return renderer ? new Set(renderer._roots || []) : new Set();
+      console.log('Getting fiber roots for renderer:', rendererID);
+      const roots = [];
+      hook.renderers.forEach((renderer, id) => {
+        if (renderer.findFiberByHostInstance) {
+          const fiberRoot = renderer.findFiberByHostInstance(document.body);
+          if (fiberRoot) {
+            roots.push(fiberRoot);
+          }
+        }
+      });
+      return new Set(roots);
     },
   };
-
-  function serializeFiber(fiber) {
-    if (!fiber) return null;
-    return {
-      tag: fiber.tag,
-      key: fiber.key,
-      elementType: fiber.elementType ? fiber.elementType.name || String(fiber.elementType) : null,
-      type: fiber.type ? fiber.type.name || String(fiber.type) : null,
-      stateNode: fiber.stateNode ? (fiber.stateNode.constructor ? fiber.stateNode.constructor.name : 'Unknown') : null,
-    };
-  }
-
-  function sendMessage(payload) {
-    window.postMessage({ source: 'minimal-react-devtools-bridge', payload }, '*');
-  }
 
   Object.defineProperty(window, HOOK_NAME, {
     enumerable: false,
@@ -48,24 +63,34 @@ console.log('Minimal React DevTools Plus: Inject script loaded');
     }
   });
 
-  window.addEventListener('message', function(event) {
-    if (event.source !== window || !event.data) return;
-    if (event.data.source === 'minimal-react-devtools-content-script') {
-      const payload = event.data.payload;
-      if (payload.type === 'getFiberRoots') {
-        const rendererID = Array.from(hook.renderers.keys())[0];
-        const roots = hook.getFiberRoots(rendererID);
-        sendMessage({ type: 'fiberRoots', roots: Array.from(roots).map(serializeFiber) });
-      }
-    }
-  });
+  // Integrate with existing React DevTools hook
+  const existingHook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+  if (existingHook) {
+    console.log('Existing React DevTools hook found');
 
-  // Attempt to detect React
-  const reactDetectInterval = setInterval(() => {
-    if (window.__REACT_DEVTOOLS_GLOBAL_HOOK__ && window.__REACT_DEVTOOLS_GLOBAL_HOOK__.renderers.size > 0) {
-      console.log('React detected by Minimal React DevTools Plus');
-      clearInterval(reactDetectInterval);
-      sendMessage({ type: 'reactDetected' });
-    }
-  }, 1000);
+    // Wrap the existing inject method
+    const originalInject = existingHook.inject;
+    existingHook.inject = function(renderer) {
+      hook.inject(renderer);
+      return originalInject.call(this, renderer);
+    };
+
+    // Wrap the existing onCommitFiberRoot method
+    const originalOnCommitFiberRoot = existingHook.onCommitFiberRoot;
+    existingHook.onCommitFiberRoot = function(id, root, priorityLevel) {
+      hook.onCommitFiberRoot(id, root, priorityLevel);
+      return originalOnCommitFiberRoot.call(this, id, root, priorityLevel);
+    };
+
+    // Copy over any existing renderers
+    existingHook.renderers.forEach((renderer, id) => {
+      hook.inject(renderer);
+    });
+
+    console.log('Successfully integrated with existing React DevTools hook');
+  } else {
+    console.log('No existing React DevTools hook found');
+  }
+
+  window.postMessage({ source: 'minimal-react-devtools-bridge', payload: { type: 'initialized' } }, '*');
 })();

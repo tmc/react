@@ -1,43 +1,23 @@
-console.log('Minimal React DevTools Plus: Background script loaded');
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log('Background script received message:', message);
 
-const connections = {};
+  if (message.type === 'commitFiberRoot') {
+    chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+      const tabId = tabs[0].id;
+      chrome.runtime.sendMessage({
+        type: 'panelMessage',
+        tabId: tabId,
+        data: message
+      });
+    });
+  }
+});
 
-chrome.runtime.onConnect.addListener(function(port) {
-  const extensionListener = function(message, sender, sendResponse) {
-    if (message.name === "init") {
-      connections[message.tabId] = port;
-      return;
-    }
-  };
-
-  port.onMessage.addListener(extensionListener);
-
-  port.onDisconnect.addListener(function(port) {
-    port.onMessage.removeListener(extensionListener);
-    const tabs = Object.keys(connections);
-    for (let i = 0, len = tabs.length; i < len; i++) {
-      if (connections[tabs[i]] == port) {
-        delete connections[tabs[i]];
-        break;
-      }
+chrome.runtime.onConnect.addListener((port) => {
+  console.assert(port.name === 'devtools-page');
+  port.onMessage.addListener((message) => {
+    if (message.type === 'init') {
+      port.postMessage({type: 'initialized'});
     }
   });
-});
-
-chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
-  if (sender.tab) {
-    const tabId = sender.tab.id;
-    if (tabId in connections) {
-      connections[tabId].postMessage(request);
-    } else {
-      console.log("Tab not found in connection list.");
-    }
-  } else {
-    console.log("sender.tab not defined.");
-  }
-  return true;
-});
-
-chrome.action.onClicked.addListener((tab) => {
-  chrome.tabs.create({ url: "panel.html" });
 });

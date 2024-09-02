@@ -1,25 +1,40 @@
 console.log('Minimal React DevTools Plus: DevTools script loaded');
 
+let panelWindow = null;
+
 chrome.devtools.panels.create(
-  "Minimal React",
-  "icons/icon16.png",
-  "panel.html",
-  function(panel) {
-    console.log('Minimal React panel created');
+  'Minimal React',
+  null,
+  'panel.html',
+  (panel) => {
+    panel.onShown.addListener((window) => {
+      panelWindow = window;
+    });
+    panel.onHidden.addListener(() => {
+      panelWindow = null;
+    });
   }
 );
 
 const backgroundPageConnection = chrome.runtime.connect({
-  name: "devtools-page"
+  name: 'devtools-page'
 });
 
 backgroundPageConnection.postMessage({
-  name: 'init',
+  type: 'init',
   tabId: chrome.devtools.inspectedWindow.tabId
 });
 
-backgroundPageConnection.onMessage.addListener(function(message) {
-  if (message.type === 'reactDetected') {
-    console.log('React detected on the page');
+backgroundPageConnection.onMessage.addListener((message) => {
+  if (message.type === 'initialized') {
+    console.log('DevTools page initialized');
+  }
+});
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'panelMessage' && message.tabId === chrome.devtools.inspectedWindow.tabId) {
+    if (panelWindow) {
+      panelWindow.postMessage(message.data, '*');
+    }
   }
 });

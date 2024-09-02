@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Minimal React DevTools",
+  "version": "1.0",
+  "description": "A minimal version of React DevTools",
+  "permissions": ["scripting", "storage", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["contentScript.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "devtools_page": "devtools.html"
+}

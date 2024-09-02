@@ -1,14 +1,8 @@
-console.log('Panel script loaded');
+console.log('Minimal React DevTools Plus: Panel script loaded');
 
-let treeData = null;
+let fiberRoots = [];
 
-function updateTree(fiberRoots) {
-  console.log('Updating tree with fiber roots:', fiberRoots);
-  treeData = fiberRoots;
-  renderTree();
-}
-
-function renderTree() {
+function updateTree() {
   const treeElement = document.getElementById('tree');
   treeElement.innerHTML = '';
 
@@ -16,47 +10,33 @@ function renderTree() {
     const element = document.createElement('div');
     element.className = 'component';
     element.style.paddingLeft = depth * 20 + 'px';
-    element.textContent = node.name || 'Unknown';
-    element.onclick = () => getSource(node.name);
+    element.textContent = node.type || node.elementType || 'Unknown';
+    element.onclick = () => showDetails(node);
     treeElement.appendChild(element);
-
-    if (node.children) {
-      node.children.forEach(child => renderNode(child, depth + 1));
-    }
   }
 
-  if (Array.isArray(treeData)) {
-    treeData.forEach(root => renderNode(root));
-  } else {
-    console.error('treeData is not an array:', treeData);
-  }
+  fiberRoots.forEach(root => renderNode(root));
 }
 
-function getSource(id) {
-  console.log('Getting source for:', id);
-  chrome.runtime.sendMessage({
-    type: "get-source",
-    tabId: chrome.devtools.inspectedWindow.tabId,
-    id: id
-  });
+function showDetails(node) {
+  const detailsElement = document.getElementById('details');
+  detailsElement.textContent = JSON.stringify(node, null, 2);
 }
 
 function getFiberRoots() {
-  console.log('Requesting fiber roots');
-  chrome.runtime.sendMessage({
-    type: "get-fiber-roots",
-    tabId: chrome.devtools.inspectedWindow.tabId
-  });
+  chrome.runtime.sendMessage({ type: 'getFiberRoots' });
 }
 
 chrome.runtime.onMessage.addListener(function(message) {
-  console.log('Message received in panel:', message);
-  if (message.type === 'fiber-roots-result') {
-    updateTree(message.roots);
-  } else if (message.type === 'source-result') {
-    document.getElementById('source').textContent = message.source;
+  if (message.type === 'fiberRoots') {
+    fiberRoots = message.roots;
+    updateTree();
+  } else if (message.type === 'commitFiberRoot' || message.type === 'commitFiberUnmount') {
+    getFiberRoots(); // Refresh the tree on any change
   }
 });
+
+document.getElementById('refreshButton').addEventListener('click', getFiberRoots);
 
 // Initial request for fiber roots
 getFiberRoots();

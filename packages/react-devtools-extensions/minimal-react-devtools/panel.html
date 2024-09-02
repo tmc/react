@@ -1,17 +1,21 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <script src="panel.js"></script>
+    <title>Minimal React DevTools Plus</title>
     <style>
+      body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
       #tree { font-family: monospace; }
-      .component { cursor: pointer; }
-      #source { white-space: pre-wrap; background-color: #f0f0f0; padding: 10px; }
+      .component { cursor: pointer; margin: 5px 0; }
+      #details { white-space: pre-wrap; background-color: #f0f0f0; padding: 10px; margin-top: 20px; }
     </style>
   </head>
   <body>
+    <h1>Minimal React DevTools Plus</h1>
+    <button id="refreshButton">Refresh</button>
     <h2>Component Tree</h2>
     <div id="tree"></div>
-    <h2>Source</h2>
-    <div id="source"></div>
+    <h2>Component Details</h2>
+    <div id="details"></div>
+    <script src="panel.js"></script>
   </body>
 </html>

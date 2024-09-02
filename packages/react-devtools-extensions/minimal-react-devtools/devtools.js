@@ -1,31 +1,25 @@
-console.log('DevTools script loaded');
+console.log('Minimal React DevTools Plus: DevTools script loaded');
 
-chrome.devtools.panels.create("React", "", "panel.html", function(panel) {
-  console.log('React panel created');
-});
+chrome.devtools.panels.create(
+  "Minimal React",
+  "icons/icon16.png",
+  "panel.html",
+  function(panel) {
+    console.log('Minimal React panel created');
+  }
+);
 
 const backgroundPageConnection = chrome.runtime.connect({
   name: "devtools-page"
 });
 
-console.log('Sending inject-script message');
 backgroundPageConnection.postMessage({
-  type: "inject-script",
+  name: 'init',
   tabId: chrome.devtools.inspectedWindow.tabId
 });
 
 backgroundPageConnection.onMessage.addListener(function(message) {
-  console.log('Message received in devtools:', message);
-  if (message.type === "source-result" || message.type === "fiber-roots-result") {
-    chrome.runtime.sendMessage(message);
+  if (message.type === 'reactDetected') {
+    console.log('React detected on the page');
   }
 });
-
-// Request fiber roots after a short delay to ensure inject.js has run
-setTimeout(() => {
-  console.log('Requesting fiber roots');
-  backgroundPageConnection.postMessage({
-    type: "get-fiber-roots",
-    tabId: chrome.devtools.inspectedWindow.tabId
-  });
-}, 1000);

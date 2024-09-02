@@ -1,27 +1,43 @@
-console.log('Background script loaded');
+console.log('Minimal React DevTools Plus: Background script loaded');
+
+const connections = {};
 
 chrome.runtime.onConnect.addListener(function(port) {
-  console.log('Port connected:', port.name);
-  if (port.name === "devtools-page") {
-    port.onMessage.addListener(function(message) {
-      console.log('Message received in background:', message);
-      if (message.type === "inject-script") {
-        chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
-          chrome.scripting.executeScript({
-            target: {tabId: tabs[0].id},
-            files: ["inject.js"]
-          }).then(() => console.log('inject.js injected')).catch(console.error);
-        });
-      } else if (message.type === "get-source" || message.type === "get-fiber-roots") {
-        chrome.tabs.sendMessage(message.tabId, message);
+  const extensionListener = function(message, sender, sendResponse) {
+    if (message.name === "init") {
+      connections[message.tabId] = port;
+      return;
+    }
+  };
+
+  port.onMessage.addListener(extensionListener);
+
+  port.onDisconnect.addListener(function(port) {
+    port.onMessage.removeListener(extensionListener);
+    const tabs = Object.keys(connections);
+    for (let i = 0, len = tabs.length; i < len; i++) {
+      if (connections[tabs[i]] == port) {
+        delete connections[tabs[i]];
+        break;
       }
-    });
-  }
+    }
+  });
 });
 
-chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
-  console.log('Message received in background:', message);
-  if (message.type === "source-result" || message.type === "fiber-roots-result") {
-    chrome.runtime.sendMessage(message);
+chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
+  if (sender.tab) {
+    const tabId = sender.tab.id;
+    if (tabId in connections) {
+      connections[tabId].postMessage(request);
+    } else {
+      console.log("Tab not found in connection list.");
+    }
+  } else {
+    console.log("sender.tab not defined.");
   }
+  return true;
+});
+
+chrome.action.onClicked.addListener((tab) => {
+  chrome.tabs.create({ url: "panel.html" });
 });

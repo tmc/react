@@ -17,17 +17,35 @@ function debugLog(component, message) {
 async function captureFullPageScreenshot(page, filename) {
   const client = await page.target().createCDPSession();
   
-  // Get the browser window size
-  const { windowWidth, windowHeight } = await client.send('Browser.getWindowForTarget');
-  
-  // Capture the full screenshot
-  const { data } = await client.send('Page.captureScreenshot', {
-    format: 'png',
-    clip: { x: 0, y: 0, width: windowWidth, height: windowHeight, scale: 1 }
-  });
+  try {
+    // Get the browser window size
+    const { windowWidth, windowHeight } = await client.send('Browser.getWindowForTarget');
+    
+    // Capture the full screenshot
+    const { data } = await client.send('Page.captureScreenshot', {
+      format: 'png',
+      clip: { 
+        x: 0, 
+        y: 0, 
+        width: windowWidth || 1920, 
+        height: windowHeight || 1080, 
+        scale: 1 
+      }
+    });
 
-  fs.writeFileSync(filename, Buffer.from(data, 'base64'));
-  debugLog('Test', `Full window screenshot saved as ${filename}`);
+    fs.writeFileSync(filename, Buffer.from(data, 'base64'));
+    debugLog('Test', `Full window screenshot saved as ${filename}`);
+  } catch (error) {
+    debugLog('Test', `Error capturing full page screenshot: ${error.message}`);
+    
+    // Fallback to capturing the viewport
+    try {
+      const screenshot = await page.screenshot({ path: filename, fullPage: true });
+      debugLog('Test', `Fallback screenshot saved as ${filename}`);
+    } catch (fallbackError) {
+      debugLog('Test', `Error capturing fallback screenshot: ${fallbackError.message}`);
+    }
+  }
 }
 
 async function runTest() {

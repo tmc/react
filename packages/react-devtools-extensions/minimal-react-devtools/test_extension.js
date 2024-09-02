@@ -1,65 +1,10 @@
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const path = require('path');
-const fs = require('fs');
-const { execSync } = require('child_process');
+const { debugLog, getDisplays } = require('./test_utils');
+const { getExtensionId, openMinimalReactDevTools, captureScreenshot } = require('./test_browser');
 
 puppeteer.use(StealthPlugin());
-
-const DEBUG = process.env.DEBUG === 'true';
-
-function debugLog(component, message) {
-  if (DEBUG) {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] [${component}] ${message}`);
-  }
-}
-
-function getDisplays() {
-  const displayInfo = execSync('system_profiler SPDisplaysDataType -json').toString();
-  const displays = JSON.parse(displayInfo).SPDisplaysDataType[0].spdisplays_ndrvs;
-  console.log('displays', JSON.stringify(displays, null, 2));
-  return displays.map((display, index) => {
-    let width, height;
-    if (display._spdisplays_pixels) {
-      [width, height] = display._spdisplays_pixels.split(' x ').map(Number);
-    } else if (display.spdisplays_resolution) {
-      [width, height] = display.spdisplays_resolution.split(' @ ')[0].split(' x ').map(Number);
-    } else {
-      console.warn(`Unable to determine dimensions for display ${index}`);
-      width = height = 0;
-    }
-    return {
-      index,
-      width,
-      height,
-      name: display._name
-    };
-  });
-}
-
-async function captureScreenshot(page, filename) {
-  debugLog('Test', 'Capturing screenshot');
-
-  const windowSize = await page.evaluate(() => ({
-    width: window.outerWidth,
-    height: window.outerHeight,
-    left: window.screenX,
-    top: window.screenY
-  }));
-
-  await page.evaluate(() => window.focus());
-  await new Promise(resolve => setTimeout(resolve, 1000));
-
-  try {
-    execSync(`screencapture -R${windowSize.left},${windowSize.top},${windowSize.width},${windowSize.height} ${filename}`);
-    debugLog('Test', `Screenshot saved as ${filename}`);
-  } catch (error) {
-    debugLog('Test', `Error capturing specific region: ${error.message}`);
-    debugLog('Test', 'Falling back to full screen capture');
-    execSync(`screencapture ${filename}`);
-  }
-}
 
 async function runTest() {
   debugLog('Test', 'Starting extension test');
@@ -89,8 +34,10 @@ async function runTest() {
         `--window-position=${targetDisplay.index * targetDisplay.width},0`,
         `--window-size=${targetDisplay.width},${targetDisplay.height}`,
       ],
-      devtools: true,
     });
+
+    const extensionId = await getExtensionId(browser);
+    debugLog('Test', `Extension ID: ${extensionId}`);
 
     debugLog('Test', 'Opening new page');
     const page = await browser.newPage();
@@ -98,9 +45,19 @@ async function runTest() {
     debugLog('Test', 'Navigating to React website');
     await page.goto('https://react.dev', { waitUntil: 'networkidle0', timeout: 30000 });
 
+    await openMinimalReactDevTools(browser, extensionId);
+
+    debugLog('Test', 'Waiting for DevTools to stabilize');
     await new Promise(resolve => setTimeout(resolve, 10000));
 
-    await captureScreenshot(page, 'puppeteer_window.png');
+    debugLog('Test', 'Bringing main page to front');
+    const pages = await browser.pages();
+    const mainPage = pages.find(p => p.url().includes('react.dev'));
+    if (mainPage) {
+      await mainPage.bringToFront();
+    }
+
+    await captureScreenshot(mainPage || page, 'puppeteer_window.png');
 
     debugLog('Test', 'Test completed successfully');
   } catch (error) {

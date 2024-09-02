@@ -14,6 +14,22 @@ function debugLog(component, message) {
   }
 }
 
+async function captureFullPageScreenshot(page, filename) {
+  const client = await page.target().createCDPSession();
+  
+  // Get the browser window size
+  const { windowWidth, windowHeight } = await client.send('Browser.getWindowForTarget');
+  
+  // Capture the full screenshot
+  const { data } = await client.send('Page.captureScreenshot', {
+    format: 'png',
+    clip: { x: 0, y: 0, width: windowWidth, height: windowHeight, scale: 1 }
+  });
+
+  fs.writeFileSync(filename, Buffer.from(data, 'base64'));
+  debugLog('Test', `Full window screenshot saved as ${filename}`);
+}
+
 async function runTest() {
   debugLog('Test', 'Starting extension test');
 
@@ -30,6 +46,9 @@ async function runTest() {
         `--disable-extensions-except=${extensionPath}`,
         `--load-extension=${extensionPath}`,
         '--auto-open-devtools-for-tabs',
+        '--start-maximized',
+        '--window-position=1921,0',  // Adjust these values based on your setup
+        '--window-size=1920,1080'    // Adjust these values based on your setup
       ],
     });
 
@@ -49,6 +68,9 @@ async function runTest() {
 
     debugLog('Test', 'Navigating to React website');
     await page.goto('https://react.dev', { waitUntil: 'networkidle0', timeout: 30000 });
+
+    // Wait for a moment to ensure DevTools is fully loaded
+    await new Promise(resolve => setTimeout(resolve, 5000));
 
     debugLog('Test', 'Checking window properties');
     const windowProps = await page.evaluate(() => {
@@ -89,55 +111,8 @@ async function runTest() {
 
     debugLog('Test', `Minimal React DevTools extension detected: ${extensionExists.result.value}`);
 
-    // Use chrome.debugger API to interact with DevTools
-    debugLog('Test', 'Attaching debugger');
-    await client.send('Debugger.enable');
-
-    debugLog('Test', 'Getting document root');
-    const root = await client.send('DOM.getDocument');
-    debugLog('Test', `Document root: ${JSON.stringify(root, null, 2)}`);
-
-    debugLog('Test', 'Searching for Minimal React tab');
-    const minimalReactTab = await client.send('DOM.querySelector', {
-      nodeId: root.root.nodeId,
-      selector: 'div[data-testid="Minimal React"]'
-    });
-
-    if (minimalReactTab.nodeId) {
-      debugLog('Test', 'Minimal React tab found');
-      
-      debugLog('Test', 'Clicking Minimal React tab');
-      await client.send('DOM.focus', { nodeId: minimalReactTab.nodeId });
-      await client.send('Input.dispatchMouseEvent', {
-        type: 'mousePressed',
-        button: 'left',
-        clickCount: 1,
-      });
-      await client.send('Input.dispatchMouseEvent', {
-        type: 'mouseReleased',
-        button: 'left',
-        clickCount: 1,
-      });
-
-      debugLog('Test', 'Checking for React components in DevTools');
-      const componentsTree = await client.send('DOM.querySelector', {
-        nodeId: root.root.nodeId,
-        selector: '#tree'
-      });
-
-      if (componentsTree.nodeId) {
-        const children = await client.send('DOM.getChildren', { nodeId: componentsTree.nodeId });
-        debugLog('Test', `React components found in DevTools: ${children.children.length}`);
-      } else {
-        debugLog('Test', 'No React components found in DevTools');
-      }
-    } else {
-      debugLog('Test', 'Minimal React tab not found');
-    }
-
-    debugLog('Test', 'Taking screenshot');
-    const screenshot = await page.screenshot({ fullPage: true });
-    fs.writeFileSync('react_devtools_test.png', screenshot);
+    // Capture full window screenshot
+    await captureFullPageScreenshot(page, 'full_window_screenshot.png');
 
     debugLog('Test', 'Test completed successfully');
   } catch (error) {

@@ -36,53 +36,72 @@ async function getExtensionId(browser) {
 async function openMinimalReactDevTools(browser, extensionId) {
   debugLog('Test', 'Attempting to open Minimal React DevTools');
 
-  for (let i = 0; i < 5; i++) {
-    const backgroundPageTarget = await browser.targets().find(
-      target => (target.type() === 'background_page' || target.type() === 'service_worker') && target.url().includes(extensionId)
-    );
+  // Wait for DevTools to open (it should auto-open due to the launch flag)
+  await new Promise(resolve => setTimeout(resolve, 2000));
 
-    if (backgroundPageTarget) {
-      debugLog('Test', 'Found extension background page/service worker');
-      const backgroundPage = await backgroundPageTarget.page();
-      
-      try {
-        await backgroundPage.evaluate((extensionId) => {
-          return new Promise((resolve) => {
-            chrome.developerPrivate.openDevTools({
-              extensionId: extensionId,
-              renderViewId: -1,
-              renderProcessId: -1,
-              incognito: false
-            }, () => {
-              resolve();
-            });
-          });
-        }, extensionId);
-        
-        debugLog('Test', 'Minimal React DevTools opened successfully');
-        return;
-      } catch (error) {
-        debugLog('Test', `Error opening DevTools: ${error.message}`);
-      }
-    }
+  // Find the DevTools target
+  const targets = await browser.targets();
+  const devtoolsTarget = targets.find((t) =>
+    t.type() === 'other' && t.url().startsWith('devtools://'));
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+  if (!devtoolsTarget) {
+    debugLog('Test', 'DevTools target not found');
+    return false;
   }
 
-  debugLog('Test', 'Attempting fallback method to open DevTools');
-  const page = await browser.newPage();
-  await page.goto(`chrome-extension://${extensionId}/panel.html`);
-  await page.evaluate(() => {
-    chrome.developerPrivate.openDevTools({
-      extensionId: chrome.runtime.id,
-      renderViewId: -1,
-      renderProcessId: -1,
-      incognito: false
-    });
-  });
-  await page.close();
+  // Create a CDP session
+  const client = await devtoolsTarget.createCDPSession();
+  await client.send('Runtime.enable');
 
-  debugLog('Test', 'Fallback method completed');
+  // Switch to the Elements panel and dock to right (adjust as needed)
+  await client.send('Runtime.evaluate', {
+    expression: `
+      window.UI.viewManager.showView('elements');
+      window.UI.dockController.setDockSide('right');
+    `
+  });
+
+  // Look for the Minimal React panel and switch to it
+  const panelFound = await client.send('Runtime.evaluate', {
+    expression: `
+      const panelButton = Array.from(document.querySelectorAll('.tabbed-pane-header-tab-title'))
+        .find(el => el.textContent.includes('Minimal React'));
+      if (panelButton) {
+        panelButton.click();
+        true;
+      } else {
+        false;
+      }
+    `
+  });
+
+  if (!panelFound.result.value) {
+    debugLog('Test', 'Minimal React DevTools panel not found');
+    return false;
+  }
+
+  debugLog('Test', 'Minimal React DevTools panel opened');
+
+  // Wait for the panel content to load
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
+  // Verify that the panel content has loaded
+  const panelContent = await client.send('Runtime.evaluate', {
+    expression: `
+      const panel = document.querySelector('.panel.visible');
+      panel ? panel.textContent : null;
+    `
+  });
+
+  if (panelContent.result.value) {
+    debugLog('Test', 'Panel content loaded successfully');
+  } else {
+    debugLog('Test', 'Panel content not found or empty');
+  }
+
+  // You can add more specific checks here to verify the panel's content
+
+  return client; // Return the CDP client for further interactions
 }
 
 async function captureScreenshot(page, filename) {

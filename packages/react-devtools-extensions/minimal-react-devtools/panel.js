@@ -1,184 +1,199 @@
-console.log('Minimal React DevTools Plus: Panel script loaded');
+// panel.js
 
 let fiberRoot = null;
-let isInspecting = false;
-let loadingTimeout = null;
-let lastReactRootsCount = 0;
+let loadingState = 'loading';
+let selectedComponent = null;
 
 function debugLog(...args) {
-    console.log('[Minimal React DevTools Panel]', ...args);
+  console.log('[React DevTools Panel]', ...args);
 }
 
-function showLoading() {
-    document.getElementById('loading').style.display = 'flex';
-    debugLog('Showing loading screen');
-}
+function updateUI() {
+  const loadingIndicator = document.getElementById('loadingIndicator');
+  const content = document.getElementById('content');
+  const loadingMessage = document.getElementById('loadingMessage');
 
-function hideLoading() {
-    document.getElementById('loading').style.display = 'none';
-    debugLog('Hiding loading screen');
+  switch (loadingState) {
+    case 'loading':
+      loadingIndicator.style.display = 'block';
+      content.style.display = 'none';
+      loadingMessage.textContent = 'Detecting React...';
+      break;
+    case 'reactDetected':
+      loadingIndicator.style.display = 'block';
+      content.style.display = 'none';
+      loadingMessage.textContent = 'React detected. Loading component tree...';
+      break;
+    case 'componentsLoaded':
+      loadingIndicator.style.display = 'none';
+      content.style.display = 'block';
+      updateTree();
+      updateDetails();
+      break;
+    default:
+      loadingIndicator.style.display = 'block';
+      content.style.display = 'none';
+      loadingMessage.textContent = 'Unknown state';
+  }
 }
 
 function updateTree() {
-    debugLog('Updating tree with fiber root:', fiberRoot);
-    const treeElement = document.getElementById('tree');
-    treeElement.innerHTML = '';
+  if (!fiberRoot) {
+    debugLog('No fiber root to render');
+    return;
+  }
 
-    function renderNode(node, parentElement, depth = 0) {
-        if (!node) return;
+  const treeContainer = document.getElementById('tree');
+  treeContainer.innerHTML = ''; // Clear existing content
 
-        const element = document.createElement('div');
-        element.className = 'tree-node';
-        element.style.paddingLeft = `${depth * 20}px`;
-        element.textContent = node.type || node.elementType || 'Unknown';
-        element.onclick = () => showDetails(node);
-
-        parentElement.appendChild(element);
-
-        if (node.child) {
-            renderNode(node.child, treeElement, depth + 1);
-        }
-        if (node.sibling) {
-            renderNode(node.sibling, treeElement, depth);
-        }
-    }
-
-    if (fiberRoot) {
-        renderNode(fiberRoot, treeElement);
-        hideLoading();
-    } else if (lastReactRootsCount > 0) {
-        treeElement.innerHTML = `<div id="noReactMessage">
-            Found ${lastReactRootsCount} React root(s).<br>
-            Waiting for component data...<br>
-            If this persists, try refreshing the page or the DevTools panel.
-        </div>`;
-        hideLoading();
-    } else {
-        treeElement.innerHTML = '<div id="noReactMessage">No React components detected</div>';
-        debugLog('No fiber root available');
-    }
+  const rootElement = document.createElement('ul');
+  rootElement.className = 'root';
+  rootElement.appendChild(renderFiberNode(fiberRoot));
+  treeContainer.appendChild(rootElement);
 }
 
-function showDetails(node) {
-    debugLog('Showing details for node:', node);
-    const detailsElement = document.getElementById('details');
-    detailsElement.innerHTML = '';
+function renderFiberNode(fiber) {
+  const li = document.createElement('li');
 
-    const pre = document.createElement('pre');
-    pre.className = 'details';
-    pre.textContent = JSON.stringify(node, null, 2);
-    detailsElement.appendChild(pre);
+  if (!fiber) {
+    li.textContent = 'Invalid fiber node';
+    li.className = 'error';
+    return li;
+  }
+
+  const nameSpan = document.createElement('span');
+  nameSpan.textContent = fiber.name || 'Unknown';
+  nameSpan.className = 'component-name';
+  li.appendChild(nameSpan);
+
+  if (fiber.key) {
+    const keySpan = document.createElement('span');
+    keySpan.textContent = ` (key: ${fiber.key})`;
+    keySpan.className = 'component-key';
+    li.appendChild(keySpan);
+  }
+
+  li.addEventListener('click', (event) => {
+    event.stopPropagation();
+    selectComponent(fiber);
+  });
+
+  if (fiber.child || fiber.sibling) {
+    const toggleBtn = document.createElement('button');
+    toggleBtn.textContent = '-';
+    toggleBtn.className = 'toggle-btn';
+    li.insertBefore(toggleBtn, li.firstChild);
+
+    const childrenContainer = document.createElement('ul');
+    childrenContainer.className = 'children';
+    if (fiber.child) {
+      childrenContainer.appendChild(renderFiberNode(fiber.child));
+    }
+    if (fiber.sibling) {
+      li.parentNode.appendChild(renderFiberNode(fiber.sibling));
+    }
+    li.appendChild(childrenContainer);
+
+    toggleBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      childrenContainer.style.display = childrenContainer.style.display === 'none' ? 'block' : 'none';
+      toggleBtn.textContent = childrenContainer.style.display === 'none' ? '+' : '-';
+    });
+  }
+
+  return li;
 }
 
-function startLoadingTimeout() {
-    loadingTimeout = setTimeout(() => {
-        debugLog('Loading timeout reached');
-        hideLoading();
-    }, 9000); // 9 seconds
+function selectComponent(fiber) {
+  selectedComponent = fiber;
+  updateDetails();
+}
+
+function updateDetails() {
+  const detailsElement = document.getElementById('details');
+  if (!selectedComponent) {
+    detailsElement.innerHTML = '<p>Select a component to see details</p>';
+    return;
+  }
+
+  let detailsHTML = `
+    <h2>${selectedComponent.name || 'Unknown'}</h2>
+    <p>Type: ${selectedComponent.type || 'Unknown'}</p>
+    <p>Key: ${selectedComponent.key || 'None'}</p>
+  `;
+
+  if (selectedComponent.props) {
+    detailsHTML += '<h3>Props:</h3>';
+    detailsHTML += '<pre>' + JSON.stringify(selectedComponent.props, null, 2) + '</pre>';
+  }
+
+  if (selectedComponent.state) {
+    detailsHTML += '<h3>State:</h3>';
+    detailsHTML += '<pre>' + JSON.stringify(selectedComponent.state, null, 2) + '</pre>';
+  }
+
+  detailsElement.innerHTML = detailsHTML;
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    debugLog('Panel received message:', message);
-    if (message.source === 'react-minimal-devtools-extension') {
-        if (message.payload.type === 'commitFiberRoot') {
-            debugLog('Received commitFiberRoot, data:', message.payload.data);
-            fiberRoot = message.payload.data.root;
-            updateTree();
-            hideLoading();
-            clearTimeout(loadingTimeout);
-        } else if (message.payload.type === 'inject-script-loaded') {
-            debugLog('Inject script loaded successfully');
-            showLoading();
-            startLoadingTimeout();
-        } else if (message.payload.type === 'reactRootsFound') {
-            console.log("reactRootsFound!", message.payload.data == lastReactRootsCount)
-            if (message.payload.data !== lastReactRootsCount) {
-                debugLog('React roots found:', message.payload.data);
-                lastReactRootsCount = message.payload.data;
-                updateTree(); // Call updateTree to reflect the new state
-                if (!fiberRoot) {
-                    // If we've found roots but haven't received commitFiberRoot, hide loading after a delay
-                    setTimeout(() => {
-                        if (!fiberRoot) {
-                            hideLoading();
-                        }
-                    }, 5000);
-                }
-            }
-        }
+  if (message.source === 'react-minimal-devtools-extension') {
+    debugLog('Panel received message:', message.payload.type, message.payload.data);
+    switch (message.payload.type) {
+      case 'injectScriptLoaded':
+        debugLog('Inject script loaded');
+        break;
+      case 'reactDetected':
+        debugLog('React detected');
+        loadingState = 'reactDetected';
+        updateUI();
+        break;
+      case 'commitFiberRoot':
+        debugLog('Received commitFiberRoot, updating tree');
+        fiberRoot = message.payload.data.root;
+        loadingState = 'componentsLoaded';
+        updateUI();
+        break;
+      case 'existingRootsFound':
+        debugLog('Existing roots found:', message.payload.data.roots);
+        fiberRoot = message.payload.data.roots[0]; // Take the first root
+        loadingState = 'componentsLoaded';
+        updateUI();
+        break;
+      case 'reactNotDetected':
+        debugLog('React not detected');
+        loadingState = 'componentsLoaded';
+        updateUI();
+        break;
+      case 'hookInjected':
+        debugLog('Hook injected');
+        break;
+      default:
+        debugLog('Unknown message type:', message.payload.type);
     }
+  }
 });
 
-// Initial loading state
-showLoading();
-startLoadingTimeout();
-updateTree();
-debugLog('Initial loading state set');
-
-// Check if we're connected to the background script
-if (chrome.runtime.connect) {
-    const port = chrome.runtime.connect({name: "minimal-devtools-panel"});
-    port.postMessage({type: "panel-ready"});
-    debugLog('Panel ready message sent to background script');
-    port.onMessage.addListener((message) => {
-        debugLog('Panel received port message:', message);
-    });
-} else {
-    console.error('Unable to connect to background script');
+function setupInspectMode() {
+  // Implement inspect mode functionality here
+  debugLog('Inspect mode activated');
 }
 
-// Setup search functionality
-const searchInput = document.getElementById('searchInput');
-searchInput.addEventListener('input', () => {
-    const searchTerm = searchInput.value.toLowerCase();
-    const treeNodes = document.querySelectorAll('.tree-node');
-    treeNodes.forEach(node => {
-        if (node.textContent.toLowerCase().includes(searchTerm)) {
-            node.style.display = 'block';
-        } else {
-            node.style.display = 'none';
-        }
-    });
+function setupSearch() {
+  const searchInput = document.getElementById('searchInput');
+  searchInput.addEventListener('input', (event) => {
+    // Implement search functionality here
+    debugLog('Search input:', event.target.value);
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  debugLog('Panel loaded');
+  updateUI();
+
+  document.getElementById('inspectButton').addEventListener('click', setupInspectMode);
+  setupSearch();
 });
 
-// Setup component selector functionality
-const componentSelector = document.getElementById('componentSelector');
-componentSelector.addEventListener('click', () => {
-    isInspecting = !isInspecting;
-    componentSelector.classList.toggle('active', isInspecting);
-    chrome.runtime.sendMessage({
-        source: 'react-minimal-devtools-extension',
-        payload: { type: 'toggleInspector', data: isInspecting }
-    });
-});
-
-// Add a manual refresh button
-const refreshButton = document.getElementById('refreshButton');
-refreshButton.onclick = () => {
-    debugLog('Manual refresh requested');
-    showLoading();
-    startLoadingTimeout();
-    chrome.runtime.sendMessage({
-        source: 'react-minimal-devtools-extension',
-        payload: { type: 'manualRefresh' }
-    });
-};
-
-// Add version information
-const versionInfo = document.createElement('div');
-versionInfo.id = 'versionInfo';
-versionInfo.style.position = 'absolute';
-versionInfo.style.bottom = '5px';
-versionInfo.style.right = '5px';
-versionInfo.style.fontSize = '12px';
-versionInfo.style.color = '#888';
-document.body.appendChild(versionInfo);
-
-chrome.runtime.sendMessage({
-    source: 'react-minimal-devtools-extension',
-    payload: { type: 'getExtensionVersion' }
-}, (response) => {
-    if (response && response.version) {
-        versionInfo.textContent = `Extension v${response.version}`;
-    }
+window.addEventListener('error', (event) => {
+  console.error('An error occurred in the panel:', event.error);
 });

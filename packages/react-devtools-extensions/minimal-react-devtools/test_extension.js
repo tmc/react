@@ -42,14 +42,14 @@ async function runTest() {
   const targetPage = await browser.newPage();
   targetPage.on('console', msg => debugLog('Page', msg.text()));
   debugLog('Test', 'Navigating to target page...');
-  await targetPage.goto('https://react.dev', { waitUntil: 'networkidle0' });
+  await targetPage.goto('https://console.anthropic.com', { waitUntil: 'networkidle0' });
 
   // Get the window ID of the browser
   const browserWindowId = await targetPage.evaluate(() => window.name);
   debugLog('Test', `Browser window ID: ${browserWindowId}`);
 
   // sleep 1s:
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  await new Promise(resolve => setTimeout(resolve, 2000));
   // fix escape:
   const appleScriptCommand = `
     tell application "Google Chrome for Testing"
@@ -79,18 +79,20 @@ async function runTest() {
   // Wait a bit for the DevTools to open
   await new Promise(resolve => setTimeout(resolve, 3000));
 
-  // Take screenshot
   debugLog('Test', 'Taking screenshot...');
   await captureScreenshot(targetPage, 'test_screenshot2.png');
-
-  // Add a 4s sleep to see the panel
   debugLog('Test', 'Waiting for 4 seconds...');
   await new Promise(resolve => setTimeout(resolve, 4000));
-  debugLog('Test', 'Closing browser...');
-  await browser.close();
+  debugLog('Test', 'Taking screenshot...');
+  await captureScreenshot(targetPage, 'test_screenshot3.png');
+  debugLog('Test', 'Waiting for 4 seconds...');
+  await new Promise(resolve => setTimeout(resolve, 4000));
 
   // Log the screenshot path
   debugLog('Test', `Screenshot saved to: ${path.join(__dirname, 'test_screenshot.png')}`);
+
+  debugLog('Test', 'Closing browser...');
+  await browser.close();
 }
 
 runTest().catch(error => {

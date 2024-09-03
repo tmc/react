@@ -12,12 +12,14 @@ function injectScript(file) {
 
 injectScript('inject.js');
 
-// protect this more:
 window.addEventListener('message', function(event) {
-    console.log('Content script received message:', JSON.stringify(event.data));
-    if (event.source !== window || !event.data) return;
-    if (!chrome.runtime) return;
+    if (event.source !== window || !event.data || event.data.source !== 'react-minimal-devtools-extension') return;
+    console.log('Content script received message:', event.data);
     chrome.runtime.sendMessage(event.data);
+});
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    console.log('Content script received runtime message:', message);
 });
 
 chrome.runtime.sendMessage({

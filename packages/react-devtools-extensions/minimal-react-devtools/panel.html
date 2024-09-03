@@ -16,30 +16,17 @@
             border-bottom: 1px solid #ccc;
             display: flex;
             align-items: center;
-            gap: 10px; /* Add gap between toolbar items */
         }
-        .component-selector {
-            width: 24px;
-            height: 24px;
+        #inspectButton {
+            margin-right: 10px;
+            padding: 5px 10px;
             background-color: #4CAF50;
+            color: white;
             border: none;
             cursor: pointer;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-        .component-selector-icon {
-            width: 16px;
-            height: 16px;
-            background-color: white;
-            clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
-        }
-        .search-container {
-            flex-grow: 1;
-            display: flex;
         }
         #searchInput {
-            width: 100%;
+            flex-grow: 1;
             padding: 5px;
         }
         .main-content {
@@ -48,40 +35,28 @@
             overflow: hidden;
         }
         .component-tree {
-            width: 300px;
+            width: 50%;
             border-right: 1px solid #ccc;
+            overflow-y: auto;
+        }
+        .details-panel {
+            width: 50%;
+            padding: 10px;
             overflow-y: auto;
         }
         .tree-node {
             padding: 2px 5px;
             cursor: pointer;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
         }
         .tree-node:hover {
             background-color: #f0f0f0;
         }
-        .tree-node.selected {
-            background-color: #e0e0e0;
-        }
-        #details {
-            flex-grow: 1;
-            padding: 20px;
-            overflow-y: auto;
-        }
-        #loading {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(255, 255, 255, 0.8);
+        #loadingIndicator {
             display: flex;
             justify-content: center;
             align-items: center;
-            font-size: 18px;
-            z-index: 1000;
+            height: 100vh;
+            flex-direction: column;
         }
         .spinner {
             border: 4px solid #f3f3f3;
@@ -90,37 +65,31 @@
             width: 40px;
             height: 40px;
             animation: spin 1s linear infinite;
-            margin-right: 10px;
         }
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        #noReactMessage {
-            padding: 20px;
-            text-align: center;
-            font-size: 16px;
-            color: #666;
+        #loadingMessage {
+            margin-top: 20px;
+            font-size: 18px;
         }
     </style>
 </head>
 <body>
-    <div id="loading">
+    <div id="loadingIndicator">
         <div class="spinner"></div>
-        <span>Detecting React components...</span>
+        <div id="loadingMessage">Detecting React...</div>
     </div>
-    <div class="toolbar">
-        <button class="component-selector" id="componentSelector" title="Select component in the page">
-            <div class="component-selector-icon"></div>
-        </button>
-        <div class="search-container">
+    <div id="content" style="display:none;">
+        <div class="toolbar">
+            <button id="inspectButton">Select an element in the page to inspect it</button>
             <input type="text" id="searchInput" placeholder="Search components">
         </div>
-        <button id="refreshButton">Refresh</button>
-    </div>
-    <div class="main-content">
-        <div class="component-tree" id="tree"></div>
-        <div id="details"></div>
+        <div class="main-content">
+            <div id="tree" class="component-tree"></div>
+            <div id="details" class="details-panel"></div>
+        </div>
     </div>
     <script src="panel.js"></script>
 </body>

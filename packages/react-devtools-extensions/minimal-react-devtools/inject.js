@@ -5,6 +5,24 @@
         console.log('[Minimal React DevTools]', ...args);
     }
 
+    function sendMessageToContentScript(type, data) {
+        debugLog('Sending message to content script:', type, data);
+        try {
+            const serializedData = JSON.parse(JSON.stringify(data || null));
+            window.postMessage({
+                source: 'react-minimal-devtools-extension',
+                payload: { type, data: serializedData }
+            }, '*');
+        } catch (error) {
+            console.error('Failed to serialize message data:', error);
+            // Send a simplified version of the message
+            window.postMessage({
+                source: 'react-minimal-devtools-extension',
+                payload: { type, data: { error: 'Failed to serialize data' } }
+            }, '*');
+        }
+    }
+
     function getReactVersion() {
         if (window.React && window.React.version) {
             return window.React.version;
@@ -13,6 +31,7 @@
     }
 
     function detectReact() {
+        debugLog('Starting React detection');
         const indicators = [
             () => window.React,
             () => window.ReactDOM,
@@ -20,53 +39,115 @@
             () => window._REACT_DEVTOOLS_GLOBAL_HOOK,
             () => document.querySelector('[data-reactroot]'),
             () => document.querySelector('[data-reactid]'),
-            () => Array.from(document.querySelectorAll('*')).some(el => Object.keys(el).some(key => key.startsWith('__reactInternalInstance$') || key.startsWith('__reactFiber$'))),
+            () => Array.from(document.querySelectorAll('*')).some(el =>
+                Object.keys(el).some(key => key.startsWith('__reactInternalInstance$') || key.startsWith('__reactFiber$'))
+            ),
             () => window.document._reactRootContainer,
             () => window.__REACT_DEVTOOLS_ATTACH__,
         ];
 
-        let reactDetected = false;
         for (let i = 0; i < indicators.length; i++) {
             try {
                 if (indicators[i]()) {
                     debugLog(`React detected using method ${i + 1}`);
-                    reactDetected = true;
+                    sendMessageToContentScript('reactDetected', { method: i + 1 });
+                    return true;
                 }
             } catch (e) {
                 debugLog(`Error in React detection method ${i + 1}:`, e);
             }
         }
-        if (!reactDetected) { 
-          debugLog('React not detected');
-        } else {
-          const roots = findReactRoots();
-          window.postMessage({
-              source: 'react-minimal-devtools-extension',
-              payload: { type: 'reactRootsFound', data: roots.length }
-          }, '*');
-        }
-        return reactDetected;
+
+        debugLog('React not detected');
+        sendMessageToContentScript('reactNotDetected');
+        return false;
     }
 
-    function findReactRoots() {
-        const roots = [];
-        const rootElements = document.querySelectorAll('[data-reactroot]');
-        if (rootElements.length > 0) {
-            roots.push(...Array.from(rootElements));
+    function serializeFiber(fiber, depth = 0) {
+        if (!fiber || depth > 50) return null;
+
+        const serialized = {
+            tag: fiber.tag,
+            key: fiber.key,
+            elementType: serializeValue(fiber.elementType),
+            type: serializeValue(fiber.type),
+            stateNode: fiber.stateNode ? serializeValue({
+                nodeName: fiber.stateNode.nodeName,
+                nodeType: fiber.stateNode.nodeType,
+                id: fiber.stateNode.id,
+                className: fiber.stateNode.className,
+            }) : null,
+            index: fiber.index,
+            mode: fiber.mode,
+        };
+
+        try {
+            serialized.props = serializeValue(fiber.memoizedProps);
+        } catch (error) {
+            console.warn('Failed to serialize props:', error);
+            serialized.props = '[Failed to serialize]';
         }
 
-        // Fallback: look for elements with __reactInternalInstance$ or __reactFiber$ properties
-        const allElements = document.getElementsByTagName('*');
-        for (let i = 0; i < allElements.length; i++) {
-            const el = allElements[i];
-            if (Object.keys(el).some(key => key.startsWith('__reactInternalInstance$') || key.startsWith('__reactFiber$'))) {
-                roots.push(el);
+        try {
+            serialized.state = serializeValue(fiber.memoizedState);
+        } catch (error) {
+            console.warn('Failed to serialize state:', error);
+            serialized.state = '[Failed to serialize]';
+        }
+
+        serialized.child = serializeFiber(fiber.child, depth + 1);
+        serialized.sibling = serializeFiber(fiber.sibling, depth);
+
+        if (fiber.return) {
+            serialized.return = { tag: fiber.return.tag, key: fiber.return.key };
+        }
+
+        return serialized;
+    }
+
+    function serializeValue(value) {
+        if (value === null || value === undefined) {
+            return value;
+        }
+        const type = typeof value;
+        if (type === 'function') {
+            return `[Function ${value.name || 'anonymous'}]`;
+        }
+        if (type === 'object') {
+            if (Array.isArray(value)) {
+                return value.map(serializeValue);
             }
-            if (roots.length >= 10) break; // Limit to first 10 to reduce noise
+            if (value instanceof Date) {
+                return value.toISOString();
+            }
+            if (value instanceof RegExp) {
+                return value.toString();
+            }
+            if (value instanceof SVGAnimatedString) {
+                return value.baseVal;
+            }
+            if (value.constructor && value.constructor.name) {
+                return `[${value.constructor.name}]`;
+            }
+            const serialized = {};
+            for (let key in value) {
+                if (value.hasOwnProperty(key)) {
+                    try {
+                        const serializedValue = serializeValue(value[key]);
+                        if (serializedValue !== undefined) {
+                            serialized[key] = serializedValue;
+                        }
+                    } catch (error) {
+                        console.warn(`Failed to serialize property ${key}:`, error);
+                    }
+                }
+            }
+            return serialized;
         }
-
-        debugLog('Found React roots:', roots.length);
-        return roots;
+        if (type === 'symbol') {
+            return value.toString();
+        }
+        return value;
     }
 
     function injectHook() {
@@ -77,104 +158,49 @@
 
         debugLog('Injecting hook');
 
-        const hook = {
-            supportsFiber: true,
-            inject: function(renderer) {
-                debugLog('Renderer injected:', renderer);
-                this.emit('renderer', renderer);
-            },
-            onCommitFiberRoot: function(rendererID, root, priorityLevel) {
-                debugLog('onCommitFiberRoot called:', rendererID, root);
-                const serializedRoot = this.serializeFiber(root.current);
-                this.emit('commitFiberRoot', { rendererID, root: serializedRoot, priorityLevel });
-            },
-            serializeFiber: function(fiber) {
-                if (!fiber) return null;
-                return {
-                    tag: fiber.tag,
-                    key: fiber.key,
-                    elementType: String(fiber.elementType),
-                    type: String(fiber.type),
-                    stateNode: fiber.stateNode ? String(fiber.stateNode.nodeName) : null,
-                    child: this.serializeFiber(fiber.child),
-                    sibling: this.serializeFiber(fiber.sibling),
-                };
-            },
-            emit: function(event, data) {
-                debugLog('Emitting event:', event, data);
-                window.postMessage({
-                    source: 'react-minimal-devtools-extension',
-                    payload: { type: event, data: data }
-                }, '*');
-            }
-        };
-
-        Object.defineProperty(window, HOOK_NAME, {
-            enumerable: false,
-            get: function() { return hook; }
-        });
-
-        // Attempt to inject into existing DevTools hook
-        const existingHook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__ || window._REACT_DEVTOOLS_GLOBAL_HOOK;
-        if (existingHook) {
-            debugLog('Existing DevTools hook found, modifying methods');
-            ['inject', 'onCommitFiberRoot'].forEach(method => {
-                if (typeof existingHook[method] === 'function') {
-                    const original = existingHook[method];
-                    existingHook[method] = function(...args) {
-                        original.apply(existingHook, args);
-                        hook[method].apply(hook, args);
-                    };
+        try {
+            const hook = {
+                supportsFiber: true,
+                inject: function(renderer) {
+                    debugLog('Renderer injected:', renderer);
+                    this.emit('renderer', renderer);
+                },
+                  onCommitFiberRoot: function(rendererID, root, priorityLevel) {
+                      debugLog('onCommitFiberRoot called:', rendererID, root);
+                      const serializedRoot = serializeFiber(root.current);
+                      debugLog('Serialized root:', serializedRoot);
+                      sendMessageToContentScript('commitFiberRoot', { rendererID, root: serializedRoot, priorityLevel });
+                  },
+                emit: function(event, data) {
+                    debugLog('Emitting event:', event, data);
+                    sendMessageToContentScript(event, data);
                 }
+            };
+
+            Object.defineProperty(window, HOOK_NAME, {
+                enumerable: false,
+                get: function() { return hook; }
             });
 
-            // Force a commit if possible
-            console.log("existingHook", existingHook, "existingHook.getFiberRoots", existingHook.getFiberRoots, "existingHook.onCommitFiberRoot", existingHook.onCommitFiberRoot);
-            if (existingHook.getFiberRoots && existingHook.onCommitFiberRoot) {
-                existingHook.getFiberRoots(1).forEach(root => {
-                    existingHook.onCommitFiberRoot(1, root);
+            const existingHook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__ || window._REACT_DEVTOOLS_GLOBAL_HOOK;
+            if (existingHook) {
+                debugLog('Existing DevTools hook found, modifying methods');
+                ['inject', 'onCommitFiberRoot'].forEach(method => {
+                    if (typeof existingHook[method] === 'function') {
+                        const original = existingHook[method];
+                        existingHook[method] = function(...args) {
+                            original.apply(existingHook, args);
+                            hook[method].apply(hook, args);
+                        };
+                    }
                 });
             }
-        } else {
-          debugLog('No existing DevTools hook found, setting up standalone hook');
-          // If no existing hook, we need to make sure React will use our hook
-          window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = hook;
 
-          // Attempt to detect and inject into an already-loaded React instance
-          console.log("window.React", window.React);
-          if (window.React) {
-          console.log("window.React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED", window.React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED);
-          }
-          if (window.React && window.React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED) { // ct 4 eva
-              const renderer = window.React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.ReactCurrentDispatcher;
-            console.log("renderer", renderer);
-              if (renderer) {
-                  debugLog('Detected already-loaded React instance, injecting renderer');
-                  hook.inject(renderer);
-              }
-          }
+            debugLog('Hook injected successfully');
+            sendMessageToContentScript('hookInjected');
+        } catch (error) {
+            console.error('Error injecting hook:', error);
         }
-
-        // Set up a MutationObserver to detect if React loads after our hook
-        const observer = new MutationObserver(() => {
-            if (window.React && !hook.hasInjectedRenderer) {
-                debugLog('React detected after hook injection, attempting to inject');
-                if (window.React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED) {
-                    const renderer = window.React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.ReactCurrentDispatcher;
-                    if (renderer) {
-                        hook.inject(renderer);
-                        hook.hasInjectedRenderer = true;
-                        observer.disconnect();
-                    }
-                }
-            }
-        });
-
-        observer.observe(document.documentElement, {
-            childList: true,
-            subtree: true
-        });
-        debugLog('Hook injected successfully');
     }
 
     function attemptInjection() {
@@ -187,13 +213,88 @@
         return false;
     }
 
-    // Attempt immediate injection
-    if (!attemptInjection()) {
-        debugLog('React not detected initially, setting up MutationObserver');
+    function checkForReactRoot() {
+        if (window.__REACT_DEVTOOLS_GLOBAL_HOOK__ && window.__REACT_DEVTOOLS_GLOBAL_HOOK__._renderers) {
+            const renderers = Object.values(window.__REACT_DEVTOOLS_GLOBAL_HOOK__._renderers);
+            for (const renderer of renderers) {
+                if (renderer.findFiberByHostInstance) {
+                    const roots = renderer.getMountedRootInstances();
+                    debugLog('Existing React roots:', roots);
+                    if (roots.length > 0) {
+                        const serializedRoots = roots.map(root => {
+                            const fiber = renderer.findFiberByHostInstance(root);
+                            return serializeFiber(fiber);
+                        });
+                        sendMessageToContentScript('existingRootsFound', { roots: serializedRoots });
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    function findReactRoots() {
+        const roots = [];
+        const walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_ELEMENT);
+        let currentNode;
+
+        while (currentNode = walker.nextNode()) {
+            const keys = Object.keys(currentNode);
+            const reactKey = keys.find(key => key.startsWith('__reactContainer$') || key.startsWith('__reactFiber$'));
+            if (reactKey) {
+                roots.push({
+                    tagName: currentNode.tagName,
+                    id: currentNode.id,
+                    className: currentNode.className,
+                });
+            }
+        }
+
+        return roots;
+    }
+
+    // Main execution
+    if (attemptInjection()) {
+        if (!checkForReactRoot()) {
+            debugLog('No roots found using primary method, trying fallback');
+            const fallbackRoots = findReactRoots();
+            if (fallbackRoots.length > 0) {
+                debugLog('React roots found using fallback method:', fallbackRoots);
+                sendMessageToContentScript('existingRootsFound', { roots: fallbackRoots });
+            } else {
+                debugLog('No roots found immediately, setting up MutationObserver');
+                const observer = new MutationObserver(() => {
+                    if (checkForReactRoot() || findReactRoots().length > 0) {
+                        debugLog('React root found by MutationObserver, disconnecting observer');
+                        observer.disconnect();
+                    }
+                });
+                observer.observe(document.documentElement, {
+                    childList: true,
+                    subtree: true,
+                    attributes: true,
+                    attributeFilter: ['data-reactroot', 'data-reactid']
+                });
+
+                // Also check a few times after short delays
+                [1000, 2000, 5000].forEach(delay => {
+                    setTimeout(() => {
+                        if (checkForReactRoot() || findReactRoots().length > 0) {
+                            debugLog(`React root found after ${delay}ms delay`);
+                            observer.disconnect();
+                        }
+                    }, delay);
+                });
+            }
+        }
+    } else {
+        debugLog('React not detected initially, setting up MutationObserver for detection');
         const observer = new MutationObserver(() => {
             if (attemptInjection()) {
                 debugLog('React detected by MutationObserver, disconnecting observer');
                 observer.disconnect();
+                checkForReactRoot();
             }
         });
         observer.observe(document.documentElement, {
@@ -203,33 +304,19 @@
             attributeFilter: ['data-reactroot', 'data-reactid']
         });
 
-        // Also try again after short delays
-        [1000, 2000, 5000, 10000].forEach(delay => {
+        // Also attempt injection after short delays
+        [1000, 2000, 5000].forEach(delay => {
             setTimeout(() => {
                 if (attemptInjection()) {
                     debugLog(`React detected after ${delay}ms delay`);
+                    observer.disconnect();
+                    checkForReactRoot();
                 }
             }, delay);
         });
     }
 
-    // Check for React roots periodically
-    setInterval(() => {
-        const roots = findReactRoots();
-        if (roots.length > 0) {
-            window.postMessage({
-                source: 'react-minimal-devtools-extension',
-                payload: { type: 'reactRootsFound', data: roots.length }
-            }, '*');
-        }
-    }, 5000);  // Check every 5 seconds
-
-    // Send a message to verify inject.js is running
-    window.postMessage({
-        source: 'react-minimal-devtools-extension',
-        payload: { type: 'inject-script-loaded' }
-    }, '*');
-
     debugLog('Inject script finished running');
     debugLog('Detected React version:', getReactVersion());
+    sendMessageToContentScript('injectScriptLoaded');
 })();

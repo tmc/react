@@ -44,13 +44,27 @@ async function runTest() {
   debugLog('Test', 'Navigating to target page...');
   await targetPage.goto('https://react.dev', { waitUntil: 'networkidle0' });
 
-  // Use AppleScript to send "cmd+[" to switch tabs
-  exec(`osascript -e 'tell application "System Events" to keystroke "[" using {command down}'`, (error, stdout, stderr) => {
+  // Get the window ID of the browser
+  const browserWindowId = await targetPage.evaluate(() => window.name);
+  debugLog('Test', `Browser window ID: ${browserWindowId}`);
+
+  // sleep 1s:
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  const appleScriptCommand = `
+    tell application "Google Chrome for Testing"
+      activate
+      tell application "System Events"
+        keystroke "[" using command down
+      end tell
+    end tell
+  `;
+  
+  exec(`osascript -e '${appleScriptCommand}'`, (error, stdout, stderr) => {
     if (error) {
       debugLog('Test', `Error executing AppleScript: ${error}`);
       return;
     }
-    debugLog('Test', 'AppleScript executed successfully: cmd+[ sent');
+    debugLog('Test', 'AppleScript executed successfully: cmd+[ sent to the correct Chrome window');
   });
 
   // Wait a bit for the DevTools to open

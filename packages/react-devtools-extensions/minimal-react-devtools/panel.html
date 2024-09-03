@@ -1,62 +1,123 @@
 <!DOCTYPE html>
 <html>
-  <head>
+<head>
     <title>Minimal React DevTools</title>
     <style>
-      body { font-family: sans-serif; margin: 0; padding: 0; }
-      .container { display: flex; height: 100vh; }
-      .sidebar { width: 300px; border-right: 1px solid #ccc; overflow: auto; }
-      .main { flex-grow: 1; overflow: auto; padding: 10px; }
-      .search { padding: 10px; border-bottom: 1px solid #ccc; }
-      .tree-node { padding: 2px 5px; cursor: pointer; }
-      .tree-node:hover { background-color: #f0f0f0; }
-      .selected { background-color: #e0e0e0; }
-      .details { white-space: pre-wrap; }
-      #loading {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background-color: rgba(255, 255, 255, 0.8);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        font-size: 18px;
-        z-index: 1000;
-      }
-      .spinner {
-        border: 4px solid #f3f3f3;
-        border-top: 4px solid #3498db;
-        border-radius: 50%;
-        width: 40px;
-        height: 40px;
-        animation: spin 1s linear infinite;
-        margin-right: 10px;
-      }
-      @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-      }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .toolbar {
+            padding: 10px;
+            border-bottom: 1px solid #ccc;
+            display: flex;
+            align-items: center;
+        }
+        .component-selector {
+            width: 24px;
+            height: 24px;
+            background-color: #4CAF50;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-right: 10px;
+        }
+        .component-selector:hover {
+            background-color: #45a049;
+        }
+        .component-selector-icon {
+            width: 16px;
+            height: 16px;
+            background-color: white;
+            clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+        }
+        .search-container {
+            flex-grow: 1;
+            display: flex;
+        }
+        #searchInput {
+            width: 100%;
+            padding: 5px;
+        }
+        .main-content {
+            display: flex;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+        .component-tree {
+            width: 300px;
+            border-right: 1px solid #ccc;
+            overflow-y: auto;
+        }
+        .tree-node {
+            padding: 2px 5px;
+            cursor: pointer;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .tree-node:hover {
+            background-color: #f0f0f0;
+        }
+        .tree-node.selected {
+            background-color: #e0e0e0;
+        }
+        #details {
+            flex-grow: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 18px;
+            z-index: 1000;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
-  </head>
-  <body>
+</head>
+<body>
     <div id="loading">
-      <div class="spinner"></div>
-      <span>Detecting React components...</span>
+        <div class="spinner"></div>
+        <span>Detecting React components...</span>
     </div>
-    <div class="container">
-      <div class="sidebar">
-        <div class="search">
-          <input type="text" id="searchInput" placeholder="Search components">
+    <div class="toolbar">
+        <button class="component-selector" id="componentSelector" title="Select component in the page">
+            <div class="component-selector-icon"></div>
+        </button>
+        <div class="search-container">
+            <input type="text" id="searchInput" placeholder="Search components">
         </div>
-        <div id="tree"></div>
-      </div>
-      <div class="main">
-        <button id="inspectButton">Select an element in the page to inspect it</button>
+    </div>
+    <div class="main-content">
+        <div class="component-tree" id="tree"></div>
         <div id="details"></div>
-      </div>
     </div>
     <script src="panel.js"></script>
-  </body>
+</body>
 </html>

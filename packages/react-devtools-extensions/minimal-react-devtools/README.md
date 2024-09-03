@@ -3,37 +3,22 @@
 ## Project Overview
 Minimal React DevTools is a lightweight Chrome extension that provides essential React debugging capabilities without interfering with the official React DevTools. It offers a streamlined interface for inspecting React component hierarchies and state.
 
-## Component Diagram and Data Flow
+## Basic Component Diagram
 ```
-+-------------------+     +-------------------+     +-------------------+
-|    Web Page       |     |  Chrome Browser   |     |   DevTools Page   |
-|                   |     |                   |     |                   |
-|  +-----------+    |     |  +-----------+    |     |  +-----------+    |
-|  | inject.js |<---+-----+--|background |<---+-----+->|devtools.js|    |
-|  +-----------+    |     |  |   .js     |    |     |  +-----------+    |
-|    |   ^   ^      |     |  +-----------+    |     |     |     ^       |
-|    |   |   |      |     |        ^          |     |     |     |       |
-|    v   |   |      |     |        |          |     |     v     |       |
-|  +-----------+    |     |        |          |     |  +-----------+    |
-|  |contentScri|<---+-----+--------+----------+-----+->| panel.js  |    |
-|  |   pt.js   |    |     |        |          |     |  |           |    |
-|  +-----------+    |     |        |          |     |  +-----------+    |
-|    |   ^          |     |        |          |     |     |     ^       |
-|    |   |          |     |        |          |     |     |     |       |
-|    v   |          |     |        v          |     |     v     |       |
-| +-----------+     |     |  +-----------+    |     |  +-----------+    |
-| |React Fiber|     |     |  | Extension |    |     |  |   Panel   |    |
-| |   Tree    |     |     |  |  Storage  |    |     |  |    UI     |    |
-| +-----------+     |     |  +-----------+    |     |  +-----------+    |
-|                   |     |                   |     |                   |
-+-------------------+     +-------------------+     +-------------------+
-
- Data Flow:
- 1. inject.js interacts with React Fiber Tree
- 2. contentScript.js communicates between inject.js and background.js
- 3. background.js manages extension state and communicates with devtools.js
- 4. devtools.js initializes panel.js and handles DevTools-specific logic
- 5. panel.js renders UI and sends user actions back through the chain
++-------------+     +-------------+     +-------------+
+|  Web Page   |     |   Chrome    |     |  DevTools   |
+|             |     |  Extension  |     |    Page     |
+| +---------+ |     | +---------+ |     | +---------+ |
+| |inject.js| |<--->| |background| |<--->| |devtools| |
+| +---------+ |     | |   .js   | |     | |   .js   | |
+|      ^      |     | +---------+ |     | +---------+ |
+|      |      |     |      ^      |     |      ^      |
+|      v      |     |      |      |     |      v      |
+| +---------+ |     |      |      |     | +---------+ |
+| | React   | |     |      |      |     | | panel  | |
+| | Fiber   | |     |      |      |     | |  .js   | |
+| +---------+ |     |      |      |     | +---------+ |
++-------------+     +-------------+     +-------------+
 ```
 
 ## Component Descriptions
@@ -44,21 +29,16 @@ Minimal React DevTools is a lightweight Chrome extension that provides essential
    - Serializes Fiber tree for transmission
    - Handles component highlighting and selection
 
-2. **contentScript.js**:
-   - Acts as a bridge between the web page and the extension
-   - Relays messages between inject.js and background.js
-
-3. **background.js**:
+2. **background.js**:
    - Manages the extension's background processes
    - Handles message routing between content script and DevTools
-   - Interacts with Extension Storage for persistent data
 
-4. **devtools.js**:
+3. **devtools.js**:
    - Initializes the DevTools panel
    - Sets up communication channel with background.js
    - Manages DevTools-specific functionality
 
-5. **panel.js**:
+4. **panel.js**:
    - Implements the UI of the custom DevTools panel
    - Renders component tree and details
    - Sends user interactions back through the extension
@@ -96,6 +76,7 @@ function serializeFiber(fiber, depth = 0) {
 ```
 
 ### Component Highlighting
+
 
 Highlighting process:
 
@@ -136,7 +117,7 @@ function onInspectElement(event) {
 
 1. Clone this repository:
    ```
-   git clone https://github.com/tmc/minimal-react-devtools-plus.git
+   git clone https://github.com/your-repo/minimal-react-devtools.git
    ```
 2. Open Chrome and navigate to `chrome://extensions/`
 3. Enable "Developer mode" in the top right corner
@@ -163,6 +144,91 @@ For debugging tests with additional logging:
 ```
 make debug-test
 ```
+
+## Detailed Architecture and Message Passing
+
+### Basic Message Flow
+```
++-------------+     +-------------+     +-------------+
+|  Web Page   |     |  Extension  |     |  DevTools   |
+|             |     |             |     |             |
+| 1. Event    |     |             |     |             |
+| +---------+ |     |             |     |             |
+| |inject.js| |  2  |             |     |             |
+| +---------+ | --> |             |  3  |             |
+|             |     |             | --> |             |
+|             |     |             |     | 4. Update UI|
++-------------+     +-------------+     +-------------+
+```
+
+1. React updates trigger events in the web page
+2. `inject.js` sends a message to the extension
+3. The extension forwards the message to DevTools
+4. DevTools updates its UI based on the message
+
+### Intermediate Message Flow
+```
++-------------+     +-------------+     +-------------+
+|  Web Page   |     |  Extension  |     |  DevTools   |
+|             |     |             |     |             |
+| 1. Event    |     |             |     |             |
+| +---------+ |  2  | +---------+ |  3  | +---------+ |
+| |inject.js|-|-->|-|background|-|-->|-|devtools.js| |
+| +---------+ |     | |   .js   | |     | +---------+ |
+|             |     | +---------+ |     |      |      |
+|             |     |             |     |      v      |
+|             |     |             |     | +---------+ |
+|             |     |             |     | | panel.js| |
+|             |     |             |     | +---------+ |
+|             |     |             |     | 4. Update UI|
++-------------+     +-------------+     +-------------+
+        ^                  |                   |
+        |                  |                   |
+        +------------------+-------------------+
+                 5. User Interaction
+```
+
+1. React updates trigger events in the web page
+2. `inject.js` sends a message to `background.js`
+3. `background.js` forwards the message to `devtools.js`
+4. `panel.js` updates the UI based on the message
+5. User interactions in DevTools trigger messages back to the web page
+
+### Advanced Message Flow
+```
++-------------------+     +-------------------+     +-------------------+
+|     Web Page      |     |     Extension     |     |     DevTools      |
+|                   |     |                   |     |                   |
+| +---------------+ |     | +---------------+ |     | +---------------+ |
+| |   React App   | |     | |  background   | |     | |   devtools    | |
+| |   +-------+   | |  2  | |     .js       | |  3  | |     .js       | |
+| |   | Fiber |---|-->|---|-->|-------------|-->|---|-->|-----------+ | |
+| |   | Tree  |   | |     | |               | |     | |             | | |
+| |   +-------+   | |     | |               | |     | |     4       | | |
+| |       ^       | |     | |               | |     | |     |       | | |
+| |     1 |       | |     | |               | |     | |     v       | | |
+| |       v       | |     | |               | |     | | +-------+   | | |
+| | +----------+  | |     | |               | |     | | |panel.js|  | | |
+| | | inject.js |  | |     | |               | |     | | +-------+  | | |
+| | +----------+  | |     | |               | |     | |     ^       | | |
+| |       ^       | |     | |               | |     | |     |       | | |
+| |       |       | |     | |               | |     | |     5       | | |
+| +-------|-------+ |     | +---------------|-----+ | +------|-------+ | |
+|         |         |     |                 |     | |        |         | |
++---------|---------+     +-----------------|---------+------|----------+
+          |                                 |                |
+          |                6                |                |
+          +---------------------------------+----------------+
+```
+
+1. React updates its Fiber Tree
+2. `inject.js` observes changes and sends serialized data to `background.js`
+3. `background.js` forwards the message to `devtools.js`
+4. `devtools.js` passes the data to `panel.js`
+5. `panel.js` updates the UI with the new component information
+6. User interactions in DevTools trigger messages that flow back to `inject.js` for actions like highlighting or inspecting components
+
+This advanced flow shows the detailed path of messages as they travel between different parts of the extension, and how user interactions can trigger reverse message flows for features like component highlighting and inspection.
 
 ## Contributing
 

@@ -1,8 +1,7 @@
 console.log('Minimal React DevTools Plus: DevTools script loaded');
 
-let panelWindow = null;
-
-chrome.devtools.panels.create(
+console.log("creating panel");
+let panel = await chrome.devtools.panels.create(
   'Minimal React',
   null,
   'panel.html',
@@ -18,6 +17,7 @@ chrome.devtools.panels.create(
     });
   }
 );
+console.log("created panel");
 
 const backgroundPageConnection = chrome.runtime.connect({
   name: 'devtools-page'

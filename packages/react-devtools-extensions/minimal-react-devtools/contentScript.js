@@ -15,7 +15,7 @@ window.addEventListener('message', function(event) {
   console.log('Content script received message:', event);
   if (event.source !== window || !event.data) return;
 
-  if (event.data.source === 'minimal-react-devtools-bridge') {
+  if (event.data.source === 'react-minimal-devtools-extension') {
     console.log('Forwarding message to extension:', event.data);
     chrome.runtime.sendMessage(event.data.payload);
   }
@@ -24,7 +24,7 @@ window.addEventListener('message', function(event) {
 chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
   console.log('Content script received runtime message:', JSON.stringify(message, null, 2));
   window.postMessage({
-    source: 'minimal-react-devtools-content-script',
+    source: 'react-minimal-devtools-extension',
     payload: message
   }, '*');
 });

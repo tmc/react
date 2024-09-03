@@ -204,18 +204,14 @@ console.log('Minimal React DevTools Plus: Inject script loaded');
     stopInspecting();
   }
 
-
   // Expose the function to open the custom panel
   function openMinimalReactDevtoolsCustomPanel() {
     console.log('Requesting to open custom DevTools panel');
-
-    // Use chrome.runtime.sendMessage directly here instead of window.postMessage
-    chrome.runtime.sendMessage({
-      source: 'react-minimal-devtools-extension',
-      payload: { type: 'openCustomPanel' }
-    }, function(response) {
-      console.log('Response from background:', response);
-    });
+    // Post a message to the content script to handle the panel opening
+    window.postMessage({ 
+      source: 'react-minimal-devtools-extension', 
+      payload: { type: 'openCustomPanel' } 
+    }, '*');
   }
 
   window.openMinimalReactDevtoolsCustomPanel = openMinimalReactDevtoolsCustomPanel;

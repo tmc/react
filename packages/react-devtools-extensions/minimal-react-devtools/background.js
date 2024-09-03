@@ -2,12 +2,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.source === 'react-minimal-devtools-extension') {
     chrome.runtime.sendMessage(message);
   }
-
-  if (message.action === 'showCustomPanel') {
-    // Send a message to the devtools page to show the custom panel
-    chrome.runtime.sendMessage({ action: 'showCustomPanel' });
-    sendResponse({status: 'forwarded to devtools'});
-  }
 });
 
 chrome.runtime.onConnect.addListener((port) => {
@@ -19,3 +13,19 @@ chrome.runtime.onConnect.addListener((port) => {
     }
   });
 });
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.source === 'react-minimal-devtools-extension') {
+    chrome.runtime.sendMessage(message);
+  }
+});
+
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.payload && message.payload.type === 'openCustomPanel') {
+    // Forward the message to the devtools page to open the custom panel
+    chrome.runtime.sendMessage({ action: 'showCustomPanel' });
+    sendResponse({ status: 'forwarded to devtools' });
+  }
+});
+

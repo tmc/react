@@ -2,20 +2,18 @@ console.log("Minimal DevTools Extension background script loaded");
 let devtoolsLogs = [];
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  // Prevent logging messages that are already logs
-  if (message.type === 'devtoolsLog') {
-    console.log('[devtools.js] log:', ...message.message);
-    devtoolsLogs.push(message.message);
-    return;
-  }
+    if (message.type === 'devtoolsLog') {
+        console.log('[devtools.js] log:', ...message.message);
+        devtoolsLogs.push(message.message);
+        return;
+    }
 
-  console.log("Minimal DevTools Extension background script got message:", message);
+    console.log("Minimal DevTools Extension background script got message:", message);
 
-  if (message.payload && message.payload.type === 'showCustomPanel') {
-    // Forward the message to the devtools page to open the custom panel
-    chrome.runtime.sendMessage({ action: 'showCustomPanel' });
-    sendResponse({ status: 'forwarded to devtools' });
-  }
+    if (message.payload && message.payload.type === 'showCustomPanel') {
+        chrome.runtime.sendMessage({ action: 'showCustomPanel' });
+        sendResponse({ status: 'forwarded to devtools' });
+    }
 });
 
 chrome.runtime.onConnect.addListener((port) => {

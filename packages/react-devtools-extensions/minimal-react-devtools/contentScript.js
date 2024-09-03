@@ -4,6 +4,7 @@ function injectScript(file) {
     const script = document.createElement('script');
     script.src = chrome.runtime.getURL(file);
     script.onload = function() {
+        console.log('Inject script loaded');
         this.remove();
     };
     (document.head || document.documentElement).appendChild(script);
@@ -12,23 +13,18 @@ function injectScript(file) {
 injectScript('inject.js');
 
 window.addEventListener('message', function(event) {
-    console.log('Content script received message:', event);
-    if (event.source !== window || !event.data) return;
+    console.log('Content script received message:', event.data);
+    if (event.source !== window) return;
 
     if (event.data.source === 'react-minimal-devtools-extension') {
         console.log('Forwarding message to extension:', event.data);
-        chrome.runtime.sendMessage(event.data.payload);
+        chrome.runtime.sendMessage(event.data);
+    } else {
+        console.log('Received non-extension message:', event.data);
     }
 });
 
-chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
-    console.log('Content script received runtime message:', JSON.stringify(message, null, 2));
-    window.postMessage({
-        source: 'react-minimal-devtools-extension',
-        payload: message
-    }, '*');
-    if (message.type === 'panelOpened') {
-        console.log('Panel opened event received in contentScript');
-        window.dispatchEvent(new CustomEvent('minimalReactDevToolsPanelOpened'));
-    }
+chrome.runtime.sendMessage({
+    source: 'react-minimal-devtools-extension',
+    payload: { type: 'content-script-loaded' }
 });

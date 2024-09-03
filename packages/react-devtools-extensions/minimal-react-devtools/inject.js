@@ -2,11 +2,7 @@ console.log('Minimal React DevTools Plus: Inject script loaded');
 
 (function() {
     const HOOK_NAME = '__MINIMAL_REACT_DEVTOOLS_GLOBAL_HOOK__';
-    if (window[HOOK_NAME]) {
-        console.log('Hook already exists, not re-initializing');
-        return;
-    }
-
+    
     function serializeFiber(fiber, depth = 0) {
         if (!fiber || depth > 50) return null;
         const serialized = {
@@ -29,40 +25,42 @@ console.log('Minimal React DevTools Plus: Inject script loaded');
         return serialized;
     }
 
-    const hook = {
-        renderers: new Map(),
-        supportsFiber: true,
-        inject: function(renderer) {
-            const id = Math.random().toString(16).slice(2);
-            console.log('Renderer injected:', id);
-            hook.renderers.set(id, renderer);
-        },
-        onCommitFiberRoot: function(rendererID, root, priorityLevel) {
-            console.log('Commit fiber root:', rendererID, root);
-            const serializedRoot = serializeFiber(root.current);
-            window.postMessage({ source: 'react-minimal-devtools-extension', payload: { type: 'commitFiberRoot', rendererID, root: serializedRoot, priorityLevel } }, '*');
-        },
-        getFiberRoots: function(rendererID) {
-            console.log('Getting fiber roots for renderer:', rendererID);
-            const roots = [];
-            hook.renderers.forEach((renderer, id) => {
-                if (renderer.findFiberByHostInstance) {
-                    const fiberRoot = renderer.findFiberByHostInstance(document.body);
-                    if (fiberRoot) {
-                        roots.push(fiberRoot);
-                    }
-                }
-            });
-            return new Set(roots);
-        },
+    const existingHook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+    if (!existingHook) {
+        console.log('React DevTools hook not found. React may not be present on this page.');
+        return;
+    }
+
+    const originalOnCommitFiberRoot = existingHook.onCommitFiberRoot;
+    existingHook.onCommitFiberRoot = (rendererID, root, priorityLevel) => {
+        if (originalOnCommitFiberRoot) {
+            originalOnCommitFiberRoot(rendererID, root, priorityLevel);
+        }
+        console.log('Commit fiber root:', rendererID, root);
+        const serializedRoot = serializeFiber(root.current);
+        window.postMessage({ source: 'react-minimal-devtools-extension', payload: { type: 'commitFiberRoot', rendererID, root: serializedRoot, priorityLevel } }, '*');
     };
 
-    Object.defineProperty(window, HOOK_NAME, {
-        enumerable: false,
-        get: function() {
-            return hook;
+    const originalInject = existingHook.inject;
+    existingHook.inject = (renderer) => {
+        if (originalInject) {
+            originalInject(renderer);
         }
-    });
+        console.log('Renderer injected');
+    };
+
+    function getFiberRoots() {
+        const roots = [];
+        existingHook.renderers.forEach((renderer) => {
+            if (renderer.findFiberByHostInstance) {
+                const fiberRoot = renderer.findFiberByHostInstance(document.body);
+                if (fiberRoot) {
+                    roots.push(fiberRoot);
+                }
+            }
+        });
+        return new Set(roots);
+    }
 
     let isInspecting = false;
     let hoveredFiber = null;
@@ -96,7 +94,7 @@ console.log('Minimal React DevTools Plus: Inject script loaded');
     function highlightNode(fiber) {
         console.log('Attempting to highlight fiber:', fiber);
         let node = null;
-        hook.renderers.forEach((renderer) => {
+        existingHook.renderers.forEach((renderer) => {
             if (renderer.findHostInstanceByFiber) {
                 try {
                     node = renderer.findHostInstanceByFiber(fiber);
@@ -121,7 +119,7 @@ console.log('Minimal React DevTools Plus: Inject script loaded');
     function removeHighlight(fiber) {
         console.log('Attempting to remove highlight from fiber:', fiber);
         let node = null;
-        hook.renderers.forEach((renderer) => {
+        existingHook.renderers.forEach((renderer) => {
             if (renderer.findHostInstanceByFiber) {
                 try {
                     node = renderer.findHostInstanceByFiber(fiber);
@@ -170,7 +168,7 @@ console.log('Minimal React DevTools Plus: Inject script loaded');
         const target = event.target;
         hoveredFiber = null;
 
-        hook.renderers.forEach((renderer) => {
+        existingHook.renderers.forEach((renderer) => {
             if (renderer.findFiberByHostInstance) {
                 try {
                     const fiber = renderer.findFiberByHostInstance(target);
@@ -204,10 +202,8 @@ console.log('Minimal React DevTools Plus: Inject script loaded');
         stopInspecting();
     }
 
-    // Expose the function to open the custom panel
     function openMinimalReactDevtoolsCustomPanel() {
         console.log('Requesting to open custom DevTools panel');
-        // Post a message to the content script to handle the panel opening
         window.postMessage({ 
             source: 'react-minimal-devtools-extension', 
             payload: { type: 'showCustomPanel' } 

@@ -2,142 +2,133 @@ console.log('Minimal React DevTools Plus: Panel script loaded');
 
 let fiberRoot = null;
 let isInspecting = false;
+let retryCount = 0;
+const MAX_RETRIES = 5;
 
 function updateTree() {
-  console.log('Updating tree with fiber root:', fiberRoot);
-  const treeElement = document.getElementById('tree');
-  treeElement.innerHTML = '';
+    console.log('Updating tree with fiber root:', fiberRoot);
+    const treeElement = document.getElementById('tree');
+    treeElement.innerHTML = '';
 
-  function renderNode(node, depth = 0) {
-    if (!node) return;
-    const element = document.createElement('div');
-    element.className = 'tree-node';
-    element.style.paddingLeft = depth * 20 + 'px';
+    function renderNode(node, parentElement) {
+        if (!node) return;
 
-    let displayName = node.type || node.elementType || 'Unknown';
-    if (typeof displayName === 'object') {
-      displayName = displayName.name || 'Anonymous';
+        const element = document.createElement('div');
+        element.className = 'tree-node';
+        element.textContent = node.type || node.elementType || 'Unknown';
+        element.onclick = () => showDetails(node);
+
+        parentElement.appendChild(element);
+
+        if (node.child) {
+            const childrenContainer = document.createElement('div');
+            childrenContainer.style.paddingLeft = '20px';
+            renderNode(node.child, childrenContainer);
+            parentElement.appendChild(childrenContainer);
+        }
+        if (node.sibling) {
+            renderNode(node.sibling, parentElement);
+        }
     }
-    if (displayName === 'Symbol(react.strict_mode)') {
-      displayName = 'StrictMode';
+
+    if (fiberRoot) {
+        renderNode(fiberRoot, treeElement);
+    } else {
+        treeElement.innerHTML = 'No React components detected';
     }
-    element.textContent = displayName;
-
-    element.onmouseover = () => {
-      console.log('Component hovered:', displayName);
-      chrome.devtools.inspectedWindow.eval(`
-        window.postMessage({
-          source: 'react-minimal-devtools-extension',
-          payload: {
-            type: 'highlightNode',
-            fiber: ${JSON.stringify(node)},
-            action: 'highlight'
-          }
-        }, '*');
-      `);
-    };
-
-    element.onmouseout = () => {
-      chrome.devtools.inspectedWindow.eval(`
-        window.postMessage({
-          source: 'react-minimal-devtools-extension',
-          payload: {
-            type: 'highlightNode',
-            fiber: ${JSON.stringify(node)},
-            action: 'removeHighlight'
-          }
-        }, '*');
-      `);
-    };
-
-    element.onclick = () => {
-      console.log('Component clicked:', displayName);
-      showDetails(node);
-    };
-
-    treeElement.appendChild(element);
-
-    if (node.child) {
-      renderNode(node.child, depth + 1);
-    }
-    if (node.sibling) {
-      renderNode(node.sibling, depth);
-    }
-  }
-
-  if (fiberRoot) {
-    renderNode(fiberRoot);
-  } else {
-    treeElement.innerHTML = '<div>No React components detected</div>';
-  }
 }
 
 function showDetails(node) {
-  console.log('Showing details for node:', node);
-  const detailsElement = document.getElementById('details');
-  detailsElement.innerHTML = '';
+    console.log('Showing details for node:', node);
+    const detailsElement = document.getElementById('details');
+    detailsElement.innerHTML = '';
 
-  const pre = document.createElement('pre');
-  pre.className = 'details';
-
-  const cleanNode = {...node};
-  delete cleanNode.child;
-  delete cleanNode.sibling;
-
-  pre.textContent = JSON.stringify(cleanNode, null, 2);
-  detailsElement.appendChild(pre);
+    const pre = document.createElement('pre');
+    pre.className = 'details';
+    pre.textContent = JSON.stringify(node, null, 2);
+    detailsElement.appendChild(pre);
 }
 
-// Listen for messages from the injected script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.source === 'react-minimal-devtools-extension') {
     console.log('Panel received message:', message);
-    if (message.payload.type === 'commitFiberRoot') {
-      console.log('Received commitFiberRoot, updating tree');
-      fiberRoot = message.payload.root;
-      updateTree();
-    } else if (message.payload.type === 'inspectedElement') {
-      console.log('Received inspected element:', message.payload.element);
-      showDetails(message.payload.element);
+    if (message.source === 'react-minimal-devtools-extension') {
+        if (message.payload.type === 'commitFiberRoot') {
+            console.log('Received commitFiberRoot, updating tree');
+            fiberRoot = message.payload.root;
+            updateTree();
+        } else if (message.payload.type === 'inject-script-loaded') {
+            console.log('Inject script loaded successfully');
+        } else if (message.payload.type === 'content-script-loaded') {
+            console.log('Content script loaded successfully');
+        } else if (message.payload.type === 'inspectedElement') {
+            console.log('Received inspected element:', message.payload.element);
+            showDetails(message.payload.element);
+        }
     }
-  }
 });
 
 document.getElementById('inspectButton').addEventListener('click', () => {
-  isInspecting = !isInspecting;
-  const button = document.getElementById('inspectButton');
+    isInspecting = !isInspecting;
+    const button = document.getElementById('inspectButton');
 
-  if (isInspecting) {
-    button.textContent = 'Cancel inspection';
-    button.style.backgroundColor = '#ff6b6b';
-    chrome.devtools.inspectedWindow.eval(
-      'window.postMessage({ source: "react-minimal-devtools-extension", payload: { type: "startInspecting" } }, "*");'
-    );
-  } else {
-    button.textContent = 'Select an element in the page to inspect it';
-    button.style.backgroundColor = '';
-    chrome.devtools.inspectedWindow.eval(
-      'window.postMessage({ source: "react-minimal-devtools-extension", payload: { type: "stopInspecting" } }, "*");'
-    );
-  }
+    if (isInspecting) {
+        button.textContent = 'Cancel inspection';
+        button.style.backgroundColor = '#ff6b6b';
+        chrome.devtools.inspectedWindow.eval(
+            'window.postMessage({ source: "react-minimal-devtools-extension", payload: { type: "startInspecting" } }, "*");'
+        );
+    } else {
+        button.textContent = 'Select an element in the page to inspect it';
+        button.style.backgroundColor = '';
+        chrome.devtools.inspectedWindow.eval(
+            'window.postMessage({ source: "react-minimal-devtools-extension", payload: { type: "stopInspecting" } }, "*");'
+        );
+    }
 });
 
-// Request initial fiber roots when the panel is opened
+document.getElementById('searchInput').addEventListener('input', (e) => {
+    const searchTerm = e.target.value.toLowerCase();
+    const treeNodes = document.querySelectorAll('.tree-node');
+    treeNodes.forEach(node => {
+        if (node.textContent.toLowerCase().includes(searchTerm)) {
+            node.style.display = '';
+        } else {
+            node.style.display = 'none';
+        }
+    });
+});
+
 function initialize() {
-  chrome.devtools.inspectedWindow.eval(`
-    if (window.__MINIMAL_REACT_DEVTOOLS_GLOBAL_HOOK__) {
-      window.__MINIMAL_REACT_DEVTOOLS_GLOBAL_HOOK__.getFiberRoots().forEach(root => {
-        window.postMessage({
-          source: 'react-minimal-devtools-extension',
-          payload: {
-            type: 'commitFiberRoot',
-            root: window.__MINIMAL_REACT_DEVTOOLS_GLOBAL_HOOK__.onCommitFiberRoot(null, root)
-          }
-        }, '*');
-      });
-    }
-  `);
+    console.log('Initializing panel');
+    chrome.devtools.inspectedWindow.eval(`
+        console.log('Evaluating in inspected window');
+        if (window.__REACT_DEVTOOLS_GLOBAL_HOOK__) {
+            console.log('Hook found, getting fiber roots');
+            const roots = Array.from(window.__REACT_DEVTOOLS_GLOBAL_HOOK__.getFiberRoots(1));
+            console.log('Roots found:', roots);
+            roots.forEach(root => {
+                console.log('Processing root:', root);
+                window.__REACT_DEVTOOLS_GLOBAL_HOOK__.onCommitFiberRoot(1, root);
+            });
+            if (roots.length === 0) {
+                console.log('No roots found, might need to wait for React to initialize');
+            }
+        } else {
+            console.log('__REACT_DEVTOOLS_GLOBAL_HOOK__ not found');
+        }
+    `, (result, isException) => {
+        if (isException) {
+            console.error('Error during initialization:', isException);
+        } else {
+            console.log('Initialization completed');
+        }
+        if (!fiberRoot && retryCount < MAX_RETRIES) {
+            retryCount++;
+            console.log(`Retrying initialization in 1 second (attempt ${retryCount}/${MAX_RETRIES})`);
+            setTimeout(initialize, 1000);
+        }
+    });
 }
 
-// Call initialize when the panel is opened
 initialize();
+updateTree();

@@ -50,11 +50,13 @@ async function runTest() {
 
   // sleep 1s:
   await new Promise(resolve => setTimeout(resolve, 1000));
+  // fix escape:
   const appleScriptCommand = `
     tell application "Google Chrome for Testing"
       activate
       tell application "System Events"
         keystroke "[" using command down
+        key code 53
       end tell
     end tell
   `;

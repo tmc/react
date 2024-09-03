@@ -1,5 +1,6 @@
 const puppeteer = require('puppeteer-extra');
 const path = require('path');
+const { exec } = require('child_process');
 
 async function runTest() {
   const extensionPath = path.join(__dirname);
@@ -15,35 +16,24 @@ async function runTest() {
   });
 
   const targetPage = await browser.newPage();
+  targetPage.on('console', msg => console.log('Page log:', msg.text()));
   console.log('Navigating to target page...');
   await targetPage.goto('https://react.dev', { waitUntil: 'networkidle0' });
 
-  console.log('Waiting for openMinimalReactDevtoolsCustomPanel function to be available...');
-  await targetPage.waitForFunction(() => !!window.openMinimalReactDevtoolsCustomPanel, {
-    timeout: 5000,
-  });
-
-  console.log('Calling openMinimalReactDevtoolsCustomPanel...');
-  const result = await targetPage.evaluate(() => {
-    if (typeof window.openMinimalReactDevtoolsCustomPanel === 'function') {
-      console.log('Function exists, calling now...');
-      window.openMinimalReactDevtoolsCustomPanel();
-      return 'openMinimalReactDevtoolsCustomPanel called successfully';
-    } else {
-      console.error('Function openMinimalReactDevtoolsCustomPanel not found!');
-      return 'Function not found';
+  // Use AppleScript to send "cmd+[" to switch tabs
+  exec(`osascript -e 'tell application "System Events" to keystroke "[" using {command down}'`, (error, stdout, stderr) => {
+    if (error) {
+      console.error(`Error executing AppleScript: ${error}`);
+      return;
     }
+    console.log('AppleScript executed successfully: cmd+[ sent');
   });
 
-  console.log('Result from function call:', result);
+  // Take screenshot
 
-  // Additional logging to see if the panel opens correctly
-  console.log('Checking if custom DevTools panel was opened...');
-
-  // Add further checks if needed, depending on how you can verify the panel opened
   // Add a 4s sleep to see the panel
   console.log('Waiting for 4 seconds...');
-  await new Promise(resolve => setTimeout(resolve, 40000));
+  await new Promise(resolve => setTimeout(resolve, 4000));
   console.log('Closing browser...');
   await browser.close();
 }

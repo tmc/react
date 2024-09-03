@@ -74,7 +74,14 @@ async function runTest() {
 
   // Take screenshot
   debugLog('Test', 'Taking screenshot...');
-  await captureScreenshot(targetPage, 'test_screenshot.png');
+  await captureScreenshot(targetPage, 'test_screenshot1.png');
+
+  // Wait a bit for the DevTools to open
+  await new Promise(resolve => setTimeout(resolve, 3000));
+
+  // Take screenshot
+  debugLog('Test', 'Taking screenshot...');
+  await captureScreenshot(targetPage, 'test_screenshot2.png');
 
   // Add a 4s sleep to see the panel
   debugLog('Test', 'Waiting for 4 seconds...');

@@ -12,13 +12,12 @@ function injectScript(file) {
 
 injectScript('inject.js');
 
+// protect this more:
 window.addEventListener('message', function(event) {
     console.log('Content script received message:', JSON.stringify(event.data));
-    if (event.source !== window) return;
-
-    // Forward all messages to the extension
-    chrome.runtime.sendMessage(event.data);
-    console.log('Forwarded message to extension');
+    if (event.source !== window || !event.data) return;
+    if (!chrome.runtime) return;
+    // chrome.runtime.sendMessage(event.data);
 });
 
 chrome.runtime.sendMessage({

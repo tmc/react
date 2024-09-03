@@ -28,3 +28,8 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
     payload: message
   }, '*');
 });
+
+// Example of sending a message to show the custom panel
+chrome.runtime.sendMessage({ action: 'showCustomPanel' }, (response) => {
+  console.log('Response from background:', response);
+});

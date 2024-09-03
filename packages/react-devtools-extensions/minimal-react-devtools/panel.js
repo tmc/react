@@ -12,7 +12,7 @@ function updateTree() {
     if (!node) return;
     const element = document.createElement('div');
     element.className = 'tree-node';
-    element.style.paddingLeft = depth * 10 + 'px';
+    element.style.paddingLeft = depth * 20 + 'px';
 
     let displayName = node.type || node.elementType || 'Unknown';
     if (typeof displayName === 'object') {
@@ -125,13 +125,13 @@ document.getElementById('inspectButton').addEventListener('click', () => {
 // Request initial fiber roots when the panel is opened
 function initialize() {
   chrome.devtools.inspectedWindow.eval(`
-    if (window.__REACT_DEVTOOLS_GLOBAL_HOOK__) {
-      window.__REACT_DEVTOOLS_GLOBAL_HOOK__.getFiberRoots().forEach(root => {
+    if (window.__MINIMAL_REACT_DEVTOOLS_GLOBAL_HOOK__) {
+      window.__MINIMAL_REACT_DEVTOOLS_GLOBAL_HOOK__.getFiberRoots().forEach(root => {
         window.postMessage({
           source: 'react-minimal-devtools-extension',
           payload: {
             type: 'commitFiberRoot',
-            root: window.__REACT_DEVTOOLS_GLOBAL_HOOK__.onCommitFiberRoot(null, root)
+            root: window.__MINIMAL_REACT_DEVTOOLS_GLOBAL_HOOK__.onCommitFiberRoot(null, root)
           }
         }, '*');
       });

@@ -1,10 +1,34 @@
 const puppeteer = require('puppeteer-extra');
 const path = require('path');
-const { exec } = require('child_process');
+const { exec, execSync } = require('child_process');
+const fs = require('fs');
+
+function debugLog(component, message) {
+  console.log(`[${component}] ${message}`);
+}
+
+async function captureScreenshot(page, filename) {
+  const windowSize = await page.evaluate(() => ({
+    width: window.outerWidth,
+    height: window.outerHeight,
+    left: window.screenX,
+    top: window.screenY
+  }));
+  await page.evaluate(() => window.focus());
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  try {
+    execSync(`screencapture -R${windowSize.left},${windowSize.top},${windowSize.width},${windowSize.height} ${filename}`);
+    debugLog('Test', `Screenshot saved as ${filename}`);
+  } catch (error) {
+    debugLog('Test', `Error capturing specific region: ${error.message}`);
+    debugLog('Test', 'Falling back to full screen capture');
+    execSync(`screencapture ${filename}`);
+  }
+}
 
 async function runTest() {
   const extensionPath = path.join(__dirname);
-  console.log('Launching browser with extension...');
+  debugLog('Test', 'Launching browser with extension...');
   
   const browser = await puppeteer.launch({
     headless: false,
@@ -16,28 +40,36 @@ async function runTest() {
   });
 
   const targetPage = await browser.newPage();
-  targetPage.on('console', msg => console.log('Page log:', msg.text()));
-  console.log('Navigating to target page...');
+  targetPage.on('console', msg => debugLog('Page', msg.text()));
+  debugLog('Test', 'Navigating to target page...');
   await targetPage.goto('https://react.dev', { waitUntil: 'networkidle0' });
 
   // Use AppleScript to send "cmd+[" to switch tabs
   exec(`osascript -e 'tell application "System Events" to keystroke "[" using {command down}'`, (error, stdout, stderr) => {
     if (error) {
-      console.error(`Error executing AppleScript: ${error}`);
+      debugLog('Test', `Error executing AppleScript: ${error}`);
       return;
     }
-    console.log('AppleScript executed successfully: cmd+[ sent');
+    debugLog('Test', 'AppleScript executed successfully: cmd+[ sent');
   });
 
+  // Wait a bit for the DevTools to open
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
   // Take screenshot
+  debugLog('Test', 'Taking screenshot...');
+  await captureScreenshot(targetPage, 'test_screenshot.png');
 
   // Add a 4s sleep to see the panel
-  console.log('Waiting for 4 seconds...');
+  debugLog('Test', 'Waiting for 4 seconds...');
   await new Promise(resolve => setTimeout(resolve, 4000));
-  console.log('Closing browser...');
+  debugLog('Test', 'Closing browser...');
   await browser.close();
+
+  // Log the screenshot path
+  debugLog('Test', `Screenshot saved to: ${path.join(__dirname, 'test_screenshot.png')}`);
 }
 
 runTest().catch(error => {
-  console.error('Error during test execution:', error);
+  debugLog('Test', `Error during test execution: ${error}`);
 });

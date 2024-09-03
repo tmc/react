@@ -7,7 +7,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         devtoolsLogs.push(message.message);
         return;
     }
-
     console.log("Minimal DevTools Extension background script got message:", message);
 
     if (message.payload && message.payload.type === 'showCustomPanel') {
@@ -18,7 +17,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 chrome.runtime.onConnect.addListener((port) => {
     console.log("Minimal DevTools Extension background script connected to DevTools page");
-    console.assert(port.name === 'devtools-page');
+    console.assert(port.name === 'minimal-devtools-panel', 'Unexpected port name:', port.name);
     port.onMessage.addListener((message) => {
         console.log('Background received message from DevTools:', JSON.stringify(message, null, 2));
         if (message.type === 'init') {

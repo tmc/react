@@ -1,57 +1,90 @@
-console.log('Minimal React DevTools Plus: Inject script loaded');
-
 (function() {
     const HOOK_NAME = '__MINIMAL_REACT_DEVTOOLS_GLOBAL_HOOK__';
-    
-    function detectReact() {
-        const detected = !!(
-            window.React ||
-            window.__REACT_DEVTOOLS_GLOBAL_HOOK__ ||
-            window._REACT_DEVTOOLS_GLOBAL_HOOK ||
-            document.querySelector('[data-reactroot], [data-reactid]') ||
-            window.__NUXT__ || // Check for Nuxt.js, which uses React
-            window.next // Check for Next.js, which uses React
-        );
-        console.log('React detection result:', detected);
-        return detected;
+
+    function debugLog(...args) {
+        console.log('[Minimal React DevTools]', ...args);
     }
 
-    function findReactRoot() {
-        // Look for common React root attributes
-        const reactRoots = document.querySelectorAll('[data-reactroot], [data-reactid], [data-react-checksum]');
-        if (reactRoots.length > 0) {
-            console.log('Found React-like roots:', reactRoots);
-            return Array.from(reactRoots);
+    function getReactVersion() {
+        if (window.React && window.React.version) {
+            return window.React.version;
         }
-        
-        // Look for elements with __reactInternalInstance$ or __reactFiber$ properties
+        return 'Unknown';
+    }
+
+    function detectReact() {
+        const indicators = [
+            () => window.React,
+            () => window.ReactDOM,
+            () => window.__REACT_DEVTOOLS_GLOBAL_HOOK__,
+            () => window._REACT_DEVTOOLS_GLOBAL_HOOK,
+            () => document.querySelector('[data-reactroot]'),
+            () => document.querySelector('[data-reactid]'),
+            () => Array.from(document.querySelectorAll('*')).some(el => Object.keys(el).some(key => key.startsWith('__reactInternalInstance$') || key.startsWith('__reactFiber$'))),
+            () => window.document._reactRootContainer,
+            () => window.__REACT_DEVTOOLS_ATTACH__,
+        ];
+
+        let reactDetected = false;
+        for (let i = 0; i < indicators.length; i++) {
+            try {
+                if (indicators[i]()) {
+                    debugLog(`React detected using method ${i + 1}`);
+                    reactDetected = true;
+                }
+            } catch (e) {
+                debugLog(`Error in React detection method ${i + 1}:`, e);
+            }
+        }
+        if (!reactDetected) { 
+          debugLog('React not detected');
+        } else {
+          const roots = findReactRoots();
+          window.postMessage({
+              source: 'react-minimal-devtools-extension',
+              payload: { type: 'reactRootsFound', data: roots.length }
+          }, '*');
+        }
+        return reactDetected;
+    }
+
+    function findReactRoots() {
+        const roots = [];
+        const rootElements = document.querySelectorAll('[data-reactroot]');
+        if (rootElements.length > 0) {
+            roots.push(...Array.from(rootElements));
+        }
+
+        // Fallback: look for elements with __reactInternalInstance$ or __reactFiber$ properties
         const allElements = document.getElementsByTagName('*');
-        const reactElements = Array.from(allElements).filter(el => {
-            return Object.keys(el).some(key => key.startsWith('__reactInternalInstance$') || key.startsWith('__reactFiber$'));
-        });
-        
-        if (reactElements.length > 0) {
-            console.log('Found React-like elements:', reactElements);
-            return reactElements;
+        for (let i = 0; i < allElements.length; i++) {
+            const el = allElements[i];
+            if (Object.keys(el).some(key => key.startsWith('__reactInternalInstance$') || key.startsWith('__reactFiber$'))) {
+                roots.push(el);
+            }
+            if (roots.length >= 10) break; // Limit to first 10 to reduce noise
         }
-        
-        return null;
+
+        debugLog('Found React roots:', roots.length);
+        return roots;
     }
 
     function injectHook() {
         if (window[HOOK_NAME]) {
-            console.log('Hook already exists, not re-initializing');
+            debugLog('Hook already exists, not re-initializing');
             return;
         }
+
+        debugLog('Injecting hook');
 
         const hook = {
             supportsFiber: true,
             inject: function(renderer) {
-                console.log('Renderer injected:', renderer);
+                debugLog('Renderer injected:', renderer);
                 this.emit('renderer', renderer);
             },
             onCommitFiberRoot: function(rendererID, root, priorityLevel) {
-                console.log('onCommitFiberRoot called:', rendererID, root);
+                debugLog('onCommitFiberRoot called:', rendererID, root);
                 const serializedRoot = this.serializeFiber(root.current);
                 this.emit('commitFiberRoot', { rendererID, root: serializedRoot, priorityLevel });
             },
@@ -63,12 +96,12 @@ console.log('Minimal React DevTools Plus: Inject script loaded');
                     elementType: String(fiber.elementType),
                     type: String(fiber.type),
                     stateNode: fiber.stateNode ? String(fiber.stateNode.nodeName) : null,
-                    return: this.serializeFiber(fiber.return),
                     child: this.serializeFiber(fiber.child),
                     sibling: this.serializeFiber(fiber.sibling),
                 };
             },
             emit: function(event, data) {
+                debugLog('Emitting event:', event, data);
                 window.postMessage({
                     source: 'react-minimal-devtools-extension',
                     payload: { type: event, data: data }
@@ -83,34 +116,45 @@ console.log('Minimal React DevTools Plus: Inject script loaded');
 
         // Attempt to inject into existing DevTools hook
         const existingHook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__ || window._REACT_DEVTOOLS_GLOBAL_HOOK;
-        if (existingHook && typeof existingHook.inject === 'function') {
-            console.log('Existing DevTools hook found, modifying inject method');
-            const oldInject = existingHook.inject;
-            existingHook.inject = function(renderer) {
-                oldInject.call(existingHook, renderer);
-                hook.inject(renderer);
-            };
-        } else {
-            console.log('No existing DevTools hook found');
+        if (existingHook) {
+            debugLog('Existing DevTools hook found, modifying methods');
+            ['inject', 'onCommitFiberRoot'].forEach(method => {
+                if (typeof existingHook[method] === 'function') {
+                    const original = existingHook[method];
+                    existingHook[method] = function(...args) {
+                        original.apply(existingHook, args);
+                        hook[method].apply(hook, args);
+                    };
+                }
+            });
+
+            // Force a commit if possible
+            if (existingHook.getFiberRoots && existingHook.onCommitFiberRoot) {
+                existingHook.getFiberRoots(1).forEach(root => {
+                    existingHook.onCommitFiberRoot(1, root);
+                });
+            }
         }
 
-        console.log('Minimal React DevTools hook initialized');
+        debugLog('Hook injected successfully');
     }
 
     function attemptInjection() {
         if (detectReact()) {
-            console.log('React detected, injecting hook');
+            debugLog('React detected, injecting hook');
             injectHook();
             return true;
         }
+        debugLog('React not detected, injection attempt failed');
         return false;
     }
 
     // Attempt immediate injection
     if (!attemptInjection()) {
-        console.log('React not detected initially, setting up MutationObserver');
+        debugLog('React not detected initially, setting up MutationObserver');
         const observer = new MutationObserver(() => {
             if (attemptInjection()) {
+                debugLog('React detected by MutationObserver, disconnecting observer');
                 observer.disconnect();
             }
         });
@@ -121,23 +165,26 @@ console.log('Minimal React DevTools Plus: Inject script loaded');
             attributeFilter: ['data-reactroot', 'data-reactid']
         });
 
-        // Also try again after a short delay
-        setTimeout(attemptInjection, 1000);
-        setTimeout(attemptInjection, 2000);
-        setTimeout(attemptInjection, 5000);
+        // Also try again after short delays
+        [1000, 2000, 5000, 10000].forEach(delay => {
+            setTimeout(() => {
+                if (attemptInjection()) {
+                    debugLog(`React detected after ${delay}ms delay`);
+                }
+            }, delay);
+        });
     }
 
-    // Periodically check for React roots
+    // Check for React roots periodically
     setInterval(() => {
-        const roots = findReactRoot();
-        if (roots) {
-            console.log('Found React roots:', roots);
+        const roots = findReactRoots();
+        if (roots.length > 0) {
             window.postMessage({
                 source: 'react-minimal-devtools-extension',
                 payload: { type: 'reactRootsFound', data: roots.length }
             }, '*');
         }
-    }, 2000);
+    }, 5000);  // Check every 5 seconds
 
     // Send a message to verify inject.js is running
     window.postMessage({
@@ -145,5 +192,6 @@ console.log('Minimal React DevTools Plus: Inject script loaded');
         payload: { type: 'inject-script-loaded' }
     }, '*');
 
-    console.log('Inject script finished running');
+    debugLog('Inject script finished running');
+    debugLog('Detected React version:', getReactVersion());
 })();

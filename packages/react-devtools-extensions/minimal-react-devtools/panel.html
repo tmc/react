@@ -16,6 +16,7 @@
             border-bottom: 1px solid #ccc;
             display: flex;
             align-items: center;
+            gap: 10px; /* Add gap between toolbar items */
         }
         .component-selector {
             width: 24px;
@@ -26,10 +27,6 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            margin-right: 10px;
-        }
-        .component-selector:hover {
-            background-color: #45a049;
         }
         .component-selector-icon {
             width: 16px;
@@ -99,6 +96,12 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        #noReactMessage {
+            padding: 20px;
+            text-align: center;
+            font-size: 16px;
+            color: #666;
+        }
     </style>
 </head>
 <body>
@@ -113,6 +116,7 @@
         <div class="search-container">
             <input type="text" id="searchInput" placeholder="Search components">
         </div>
+        <button id="refreshButton">Refresh</button>
     </div>
     <div class="main-content">
         <div class="component-tree" id="tree"></div>

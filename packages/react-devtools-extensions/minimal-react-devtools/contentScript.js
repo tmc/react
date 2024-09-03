@@ -17,7 +17,7 @@ window.addEventListener('message', function(event) {
     console.log('Content script received message:', JSON.stringify(event.data));
     if (event.source !== window || !event.data) return;
     if (!chrome.runtime) return;
-    // chrome.runtime.sendMessage(event.data);
+    chrome.runtime.sendMessage(event.data);
 });
 
 chrome.runtime.sendMessage({

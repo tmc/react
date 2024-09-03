@@ -50,23 +50,8 @@ backgroundPageConnection.postMessage({
     tabId: chrome.devtools.inspectedWindow.tabId
 });
 backgroundPageConnection.onMessage.addListener((message) => {
-    devtoolsLog('DevTools received message from background: ' + JSON.stringify(message, null, 2));
+    devtoolsLog('DevTools received message from background: ' + JSON.stringify(message));
     if (message.type === 'initialized') {
         devtoolsLog('DevTools page initialized');
-    }
-});
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.type == 'devtoolsLog') {
-      return
-    }
-    devtoolsLog('DevTools received runtime message: ' + JSON.stringify(message, null, 2));
-    if (message.action === 'showCustomPanel' && customPanel) {
-        customPanel.show(() => {
-            devtoolsLog('Custom panel shown programmatically');
-            chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
-                chrome.tabs.sendMessage(tabs[0].id, {type: "panelOpened"});
-            });
-        });
-        sendResponse({ status: 'success' });
     }
 });

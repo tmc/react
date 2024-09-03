@@ -2,8 +2,15 @@ console.log('Minimal React DevTools Plus: Panel script loaded');
 
 let fiberRoot = null;
 let isInspecting = false;
-let retryCount = 0;
-const MAX_RETRIES = 5;
+let loadingTimeout = null;
+
+function showLoading() {
+    document.getElementById('loading').style.display = 'flex';
+}
+
+function hideLoading() {
+    document.getElementById('loading').style.display = 'none';
+}
 
 function updateTree() {
     console.log('Updating tree with fiber root:', fiberRoot);
@@ -33,6 +40,7 @@ function updateTree() {
 
     if (fiberRoot) {
         renderNode(fiberRoot, treeElement);
+        hideLoading();
     } else {
         treeElement.innerHTML = 'No React components detected';
     }
@@ -50,19 +58,29 @@ function showDetails(node) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log('Panel received message:', message);
+    console.log('Panel received message:', JSON.stringify(message));
     if (message.source === 'react-minimal-devtools-extension') {
         if (message.payload.type === 'commitFiberRoot') {
-            console.log('Received commitFiberRoot, updating tree');
-            fiberRoot = message.payload.root;
+            console.log('Received commitFiberRoot, data:', JSON.stringify(message.payload.data));
+            fiberRoot = message.payload.data.root;
             updateTree();
         } else if (message.payload.type === 'inject-script-loaded') {
             console.log('Inject script loaded successfully');
+            showLoading();
+            // Set a timeout to hide loading if no components are detected
+            loadingTimeout = setTimeout(() => {
+                hideLoading();
+                document.getElementById('tree').innerHTML = 'No React components detected';
+            }, 10000); // 10 seconds timeout
         } else if (message.payload.type === 'content-script-loaded') {
             console.log('Content script loaded successfully');
-        } else if (message.payload.type === 'inspectedElement') {
-            console.log('Received inspected element:', message.payload.element);
-            showDetails(message.payload.element);
+        } else if (message.payload.type === 'renderer') {
+            console.log('React renderer detected:', JSON.stringify(message.payload.data));
+        } else if (message.payload.type === 'reactRootsFound') {
+            console.log('React roots found:', message.payload.data);
+            document.getElementById('tree').innerHTML = `Found ${message.payload.data} potential React root(s)`;
+            hideLoading();
+            clearTimeout(loadingTimeout);
         }
     }
 });
@@ -98,37 +116,5 @@ document.getElementById('searchInput').addEventListener('input', (e) => {
     });
 });
 
-function initialize() {
-    console.log('Initializing panel');
-    chrome.devtools.inspectedWindow.eval(`
-        console.log('Evaluating in inspected window');
-        if (window.__REACT_DEVTOOLS_GLOBAL_HOOK__) {
-            console.log('Hook found, getting fiber roots');
-            const roots = Array.from(window.__REACT_DEVTOOLS_GLOBAL_HOOK__.getFiberRoots(1));
-            console.log('Roots found:', roots);
-            roots.forEach(root => {
-                console.log('Processing root:', root);
-                window.__REACT_DEVTOOLS_GLOBAL_HOOK__.onCommitFiberRoot(1, root);
-            });
-            if (roots.length === 0) {
-                console.log('No roots found, might need to wait for React to initialize');
-            }
-        } else {
-            console.log('__REACT_DEVTOOLS_GLOBAL_HOOK__ not found');
-        }
-    `, (result, isException) => {
-        if (isException) {
-            console.error('Error during initialization:', isException);
-        } else {
-            console.log('Initialization completed');
-        }
-        if (!fiberRoot && retryCount < MAX_RETRIES) {
-            retryCount++;
-            console.log(`Retrying initialization in 1 second (attempt ${retryCount}/${MAX_RETRIES})`);
-            setTimeout(initialize, 1000);
-        }
-    });
-}
-
-initialize();
+showLoading();
 updateTree();

@@ -3,8 +3,8 @@
   "name": "Minimal React DevTools Plus",
   "version": "1.1",
   "description": "A minimal version of React DevTools that can run alongside the official extension",
-  "permissions": ["scripting", "storage", "tabs", "debugger", "developerPrivate"],
-  "host_permissions": ["tabs", "<all_urls>"],
+  "permissions": ["scripting", "storage", "tabs", "debugger"],
+  "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
   },

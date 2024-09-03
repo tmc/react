@@ -12,9 +12,39 @@
       .tree-node:hover { background-color: #f0f0f0; }
       .selected { background-color: #e0e0e0; }
       .details { white-space: pre-wrap; }
+      #loading {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(255, 255, 255, 0.8);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 18px;
+        z-index: 1000;
+      }
+      .spinner {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #3498db;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin-right: 10px;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
     </style>
   </head>
   <body>
+    <div id="loading">
+      <div class="spinner"></div>
+      <span>Detecting React components...</span>
+    </div>
     <div class="container">
       <div class="sidebar">
         <div class="search">

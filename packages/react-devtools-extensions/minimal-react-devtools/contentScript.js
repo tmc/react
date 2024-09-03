@@ -13,15 +13,12 @@ function injectScript(file) {
 injectScript('inject.js');
 
 window.addEventListener('message', function(event) {
-    console.log('Content script received message:', event.data);
+    console.log('Content script received message:', JSON.stringify(event.data));
     if (event.source !== window) return;
 
-    if (event.data.source === 'react-minimal-devtools-extension') {
-        console.log('Forwarding message to extension:', event.data);
-        chrome.runtime.sendMessage(event.data);
-    } else {
-        console.log('Received non-extension message:', event.data);
-    }
+    // Forward all messages to the extension
+    chrome.runtime.sendMessage(event.data);
+    console.log('Forwarded message to extension');
 });
 
 chrome.runtime.sendMessage({

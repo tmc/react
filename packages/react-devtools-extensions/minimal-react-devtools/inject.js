@@ -3,215 +3,147 @@ console.log('Minimal React DevTools Plus: Inject script loaded');
 (function() {
     const HOOK_NAME = '__MINIMAL_REACT_DEVTOOLS_GLOBAL_HOOK__';
     
-    function serializeFiber(fiber, depth = 0) {
-        if (!fiber || depth > 50) return null;
-        const serialized = {
-            tag: fiber.tag,
-            key: fiber.key,
-            elementType: fiber.elementType ? (typeof fiber.elementType === 'string' ? fiber.elementType : fiber.elementType.name || String(fiber.elementType)) : null,
-            type: fiber.type ? (typeof fiber.type === 'string' ? fiber.type : fiber.type.name || String(fiber.type)) : null,
-            stateNode: fiber.stateNode ? (fiber.stateNode.nodeType ? fiber.stateNode.nodeName : 'NonDOMNode') : null,
-            child: null,
-            sibling: null,
+    function detectReact() {
+        const detected = !!(
+            window.React ||
+            window.__REACT_DEVTOOLS_GLOBAL_HOOK__ ||
+            window._REACT_DEVTOOLS_GLOBAL_HOOK ||
+            document.querySelector('[data-reactroot], [data-reactid]') ||
+            window.__NUXT__ || // Check for Nuxt.js, which uses React
+            window.next // Check for Next.js, which uses React
+        );
+        console.log('React detection result:', detected);
+        return detected;
+    }
+
+    function findReactRoot() {
+        // Look for common React root attributes
+        const reactRoots = document.querySelectorAll('[data-reactroot], [data-reactid], [data-react-checksum]');
+        if (reactRoots.length > 0) {
+            console.log('Found React-like roots:', reactRoots);
+            return Array.from(reactRoots);
+        }
+        
+        // Look for elements with __reactInternalInstance$ or __reactFiber$ properties
+        const allElements = document.getElementsByTagName('*');
+        const reactElements = Array.from(allElements).filter(el => {
+            return Object.keys(el).some(key => key.startsWith('__reactInternalInstance$') || key.startsWith('__reactFiber$'));
+        });
+        
+        if (reactElements.length > 0) {
+            console.log('Found React-like elements:', reactElements);
+            return reactElements;
+        }
+        
+        return null;
+    }
+
+    function injectHook() {
+        if (window[HOOK_NAME]) {
+            console.log('Hook already exists, not re-initializing');
+            return;
+        }
+
+        const hook = {
+            supportsFiber: true,
+            inject: function(renderer) {
+                console.log('Renderer injected:', renderer);
+                this.emit('renderer', renderer);
+            },
+            onCommitFiberRoot: function(rendererID, root, priorityLevel) {
+                console.log('onCommitFiberRoot called:', rendererID, root);
+                const serializedRoot = this.serializeFiber(root.current);
+                this.emit('commitFiberRoot', { rendererID, root: serializedRoot, priorityLevel });
+            },
+            serializeFiber: function(fiber) {
+                if (!fiber) return null;
+                return {
+                    tag: fiber.tag,
+                    key: fiber.key,
+                    elementType: String(fiber.elementType),
+                    type: String(fiber.type),
+                    stateNode: fiber.stateNode ? String(fiber.stateNode.nodeName) : null,
+                    return: this.serializeFiber(fiber.return),
+                    child: this.serializeFiber(fiber.child),
+                    sibling: this.serializeFiber(fiber.sibling),
+                };
+            },
+            emit: function(event, data) {
+                window.postMessage({
+                    source: 'react-minimal-devtools-extension',
+                    payload: { type: event, data: data }
+                }, '*');
+            }
         };
 
-        if (fiber.child) {
-            serialized.child = serializeFiber(fiber.child, depth + 1);
-        }
-        if (fiber.sibling) {
-            serialized.sibling = serializeFiber(fiber.sibling, depth + 1);
-        }
-
-        return serialized;
-    }
-
-    const existingHook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
-    if (!existingHook) {
-        console.log('React DevTools hook not found. React may not be present on this page.');
-        return;
-    }
-
-    const originalOnCommitFiberRoot = existingHook.onCommitFiberRoot;
-    existingHook.onCommitFiberRoot = (rendererID, root, priorityLevel) => {
-        if (originalOnCommitFiberRoot) {
-            originalOnCommitFiberRoot(rendererID, root, priorityLevel);
-        }
-        console.log('Commit fiber root:', rendererID, root);
-        const serializedRoot = serializeFiber(root.current);
-        window.postMessage({ source: 'react-minimal-devtools-extension', payload: { type: 'commitFiberRoot', rendererID, root: serializedRoot, priorityLevel } }, '*');
-    };
-
-    const originalInject = existingHook.inject;
-    existingHook.inject = (renderer) => {
-        if (originalInject) {
-            originalInject(renderer);
-        }
-        console.log('Renderer injected');
-    };
-
-    function getFiberRoots() {
-        const roots = [];
-        existingHook.renderers.forEach((renderer) => {
-            if (renderer.findFiberByHostInstance) {
-                const fiberRoot = renderer.findFiberByHostInstance(document.body);
-                if (fiberRoot) {
-                    roots.push(fiberRoot);
-                }
-            }
-        });
-        return new Set(roots);
-    }
-
-    let isInspecting = false;
-    let hoveredFiber = null;
-
-    window.addEventListener('message', function(event) {
-        if (event.source !== window || !event.data) return;
-
-        if (event.data.source === 'react-minimal-devtools-extension') {
-            const payload = event.data.payload;
-            switch (payload.type) {
-                case 'highlightNode':
-                    if (payload.action === 'highlight') {
-                        highlightNode(payload.fiber);
-                    } else if (payload.action === 'removeHighlight') {
-                        removeHighlight(payload.fiber);
-                    }
-                    break;
-                case 'clearHighlight':
-                    clearHighlight();
-                    break;
-                case 'startInspecting':
-                    startInspecting();
-                    break;
-                case 'stopInspecting':
-                    stopInspecting();
-                    break;
-            }
-        }
-    });
-
-    function highlightNode(fiber) {
-        console.log('Attempting to highlight fiber:', fiber);
-        let node = null;
-        existingHook.renderers.forEach((renderer) => {
-            if (renderer.findHostInstanceByFiber) {
-                try {
-                    node = renderer.findHostInstanceByFiber(fiber);
-                    if (node) return;
-                } catch (error) {
-                    console.log('Error finding host instance:', error);
-                }
-            }
+        Object.defineProperty(window, HOOK_NAME, {
+            enumerable: false,
+            get: function() { return hook; }
         });
 
-        console.log('Found DOM node:', node);
-
-        if (node && node.nodeType === Node.ELEMENT_NODE) {
-            node.style.outline = '2px solid red';
-            node.style.backgroundColor = 'rgba(255, 0, 0, 0.2)';
-            console.log('Highlighted node:', node);
+        // Attempt to inject into existing DevTools hook
+        const existingHook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__ || window._REACT_DEVTOOLS_GLOBAL_HOOK;
+        if (existingHook && typeof existingHook.inject === 'function') {
+            console.log('Existing DevTools hook found, modifying inject method');
+            const oldInject = existingHook.inject;
+            existingHook.inject = function(renderer) {
+                oldInject.call(existingHook, renderer);
+                hook.inject(renderer);
+            };
         } else {
-            console.log('Unable to highlight node. It might be a non-host component.');
+            console.log('No existing DevTools hook found');
         }
+
+        console.log('Minimal React DevTools hook initialized');
     }
 
-    function removeHighlight(fiber) {
-        console.log('Attempting to remove highlight from fiber:', fiber);
-        let node = null;
-        existingHook.renderers.forEach((renderer) => {
-            if (renderer.findHostInstanceByFiber) {
-                try {
-                    node = renderer.findHostInstanceByFiber(fiber);
-                    if (node) return;
-                } catch (error) {
-                    console.log('Error finding host instance:', error);
-                }
+    function attemptInjection() {
+        if (detectReact()) {
+            console.log('React detected, injecting hook');
+            injectHook();
+            return true;
+        }
+        return false;
+    }
+
+    // Attempt immediate injection
+    if (!attemptInjection()) {
+        console.log('React not detected initially, setting up MutationObserver');
+        const observer = new MutationObserver(() => {
+            if (attemptInjection()) {
+                observer.disconnect();
             }
         });
-
-        if (node && node.nodeType === Node.ELEMENT_NODE) {
-            node.style.outline = '';
-            node.style.backgroundColor = '';
-            console.log('Removed highlight from node:', node);
-        }
-    }
-
-    function clearHighlight() {
-        console.log('Clearing all highlights');
-        document.querySelectorAll('[style*="outline"][style*="background-color"]').forEach(el => {
-            el.style.outline = '';
-            el.style.backgroundColor = '';
+        observer.observe(document.documentElement, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['data-reactroot', 'data-reactid']
         });
+
+        // Also try again after a short delay
+        setTimeout(attemptInjection, 1000);
+        setTimeout(attemptInjection, 2000);
+        setTimeout(attemptInjection, 5000);
     }
 
-    function startInspecting() {
-        console.log('Start inspecting');
-        isInspecting = true;
-        document.body.style.cursor = 'crosshair';
-        document.addEventListener('mouseover', onMouseOver);
-        document.addEventListener('click', onClick);
-    }
-
-    function stopInspecting() {
-        console.log('Stop inspecting');
-        isInspecting = false;
-        document.body.style.cursor = '';
-        document.removeEventListener('mouseover', onMouseOver);
-        document.removeEventListener('click', onClick);
-        clearHighlight();
-    }
-
-    function onMouseOver(event) {
-        if (!isInspecting) return;
-
-        const target = event.target;
-        hoveredFiber = null;
-
-        existingHook.renderers.forEach((renderer) => {
-            if (renderer.findFiberByHostInstance) {
-                try {
-                    const fiber = renderer.findFiberByHostInstance(target);
-                    if (fiber) {
-                        hoveredFiber = fiber;
-                        highlightNode(serializeFiber(fiber));
-                    }
-                } catch (error) {
-                    console.log('Error finding fiber:', error);
-                }
-            }
-        });
-    }
-
-    function onClick(event) {
-        if (!isInspecting) return;
-        event.preventDefault();
-        event.stopPropagation();
-
-        if (hoveredFiber) {
-            const serializedFiber = serializeFiber(hoveredFiber);
+    // Periodically check for React roots
+    setInterval(() => {
+        const roots = findReactRoot();
+        if (roots) {
+            console.log('Found React roots:', roots);
             window.postMessage({
                 source: 'react-minimal-devtools-extension',
-                payload: {
-                    type: 'inspectedElement',
-                    element: serializedFiber
-                }
+                payload: { type: 'reactRootsFound', data: roots.length }
             }, '*');
         }
+    }, 2000);
 
-        stopInspecting();
-    }
+    // Send a message to verify inject.js is running
+    window.postMessage({
+        source: 'react-minimal-devtools-extension',
+        payload: { type: 'inject-script-loaded' }
+    }, '*');
 
-    function openMinimalReactDevtoolsCustomPanel() {
-        console.log('Requesting to open custom DevTools panel');
-        window.postMessage({ 
-            source: 'react-minimal-devtools-extension', 
-            payload: { type: 'showCustomPanel' } 
-        }, '*');
-    }
-
-    window.openMinimalReactDevtoolsCustomPanel = openMinimalReactDevtoolsCustomPanel;
-
-    console.log('Minimal React DevTools hook initialized');
-    window.postMessage({ source: 'react-minimal-devtools-extension', payload: { type: 'initialized' } }, '*');
+    console.log('Inject script finished running');
 })();

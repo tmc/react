@@ -1,18 +1,17 @@
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const path = require('path');
-const { debugLog, getDisplays } = require('./test_utils');
-const { getExtensionId, openMinimalReactDevTools, captureScreenshot } = require('./test_browser');
+const { debugLog } = require('./test_utils');
+const { getExtensionId, openMinimalReactDevTools } = require('./test_browser');
 
 puppeteer.use(require('puppeteer-extra-plugin-repl')())
 //puppeteer.use(StealthPlugin());
 
 async function runTest() {
-  const extensionPath = path.join(__dirname, 'path/to/your/extension');
+  const extensionPath = path.join(__dirname);
 
   const browser = await puppeteer.launch({
     headless: false,
-    // devtools: true,
     args: [
       `--disable-extensions-except=${extensionPath}`,
       `--load-extension=${extensionPath}`,
@@ -20,84 +19,136 @@ async function runTest() {
     ]
   });
 
+  browser.on('targetcreated', async (target) => {
+    if (target.type() === 'background_page' || target.type() === 'service_worker') {
+      try {
+        const backgroundPage = await target.page();
+        if (backgroundPage) {
+          backgroundPage.on('console', msg => console.log('Background:', msg.text()));
+        }
+      } catch (error) {
+        console.log('Error accessing background page:', error.message);
+      }
+    }
+  });
+
   // Open the target page
   const targetPage = await browser.newPage();
   await targetPage.goto('https://react.dev');
-  await targetPage.repl();
-  await browser.repl();
+  targetPage.on('console', msg => console.log('Content:', msg.text()));
+
+  // Check content script injection immediately after page load
+  await targetPage.evaluate(() => {
+    console.log('Page script: Checking for content script');
+    if (window.__MINIMAL_REACT_DEVTOOLS_GLOBAL_HOOK__) {
+      console.log('Page script: Content script injected successfully');
+    } else {
+      console.log('Page script: Content script not found');
+    }
+  });
 
   // Wait for DevTools to open
-  await new Promise(resolve => setTimeout(resolve, 2000));
+  await new Promise(resolve => setTimeout(resolve, 5000));
 
   // Find the DevTools target
   const targets = await browser.targets();
-  const devtoolsTarget = targets.find((t) => {
-    return t.type() === 'other' && t.url().startsWith('devtools://');
-  });
+  console.log("Available targets:");
+  targets.forEach(t => console.log(`- Type: ${t.type()}, URL: ${t.url()}`));
 
-  if (!devtoolsTarget) {
-    console.error('DevTools target not found');
-    await browser.close();
-    return;
+  const devtoolsTarget = targets.find((t) => t.url().startsWith('devtools://'));
+
+if (devtoolsTarget) {
+  let devtoolsPage;
+  try {
+    devtoolsPage = await devtoolsTarget.page();
+    if (devtoolsPage) {
+      const title = await devtoolsPage.title();
+      const url = devtoolsPage.url();
+      console.log(`DevTools page title: ${title}, URL: ${url}`);
+      devtoolsPage.on('console', msg => console.log('DevTools Console:', msg.text()));
+
+      // Log the HTML content of the DevTools page
+      const htmlContent = await devtoolsPage.content();
+      console.log('DevTools page HTML content:', htmlContent);
+
+    } else {
+      console.log("Unable to get DevTools page");
+    }
+  } catch (error) {
+    console.log("Error getting DevTools page:", error.message);
+    devtoolsPage = null;
   }
 
-  // Create a CDP session
-  const client = await devtoolsTarget.createCDPSession();
-  await client.send('Runtime.enable');
+  // Open Minimal React DevTools
+  if (devtoolsPage) {
+    const minimalReactDevToolsOpened = await openMinimalReactDevTools(devtoolsPage);
 
-  // Switch to the Network panel and dock to bottom
-  await client.send('Runtime.evaluate', {
-    expression: `
-      window.UI.viewManager.showView('network');
-      window.UI.dockController.setDockSide('bottom');
-    `
-  });
+    if (minimalReactDevToolsOpened) {
+      console.log('Minimal React DevTools panel opened successfully');
+      // ... (rest of the code remains the same)
+    } else {
+      console.log('Failed to open Minimal React DevTools panel');
 
-  // Switch to your extension's panel
-  await client.send('Runtime.evaluate', {
-    expression: `
-      const panelButton = Array.from(document.querySelectorAll('.tabbed-pane-header-tab-title'))
-        .find(el => el.textContent.includes('Minimal React'));
-      if (panelButton) panelButton.click();
-    `
-  });
+      // Log all iframes in the DevTools page
+      const iframes = await devtoolsPage.frames();
+      console.log(`Number of iframes: ${iframes.length}`);
+      for (let i = 0; i < iframes.length; i++) {
+        console.log(`iframe ${i} URL: ${iframes[i].url()}`);
+      }
+    }
+  } else {
+    console.log("Unable to interact with DevTools page");
+  }
+} else {
+  console.log("DevTools target not found");
+}
 
-  // Interact with your extension's panel
-  const panelContent = await client.send('Runtime.evaluate', {
-    expression: `
-      const panel = document.querySelector('.panel.visible');
-      panel ? panel.textContent : null;
-    `
-  });
+  // Modify the extension DevTools target section
+  const devtoolsExtensionTargets = targets.filter(t => t.url().includes('chrome-extension') && t.url().includes('devtools.html'));
+  console.log(`Found ${devtoolsExtensionTargets.length} extension DevTools targets`);
 
-  console.log('Panel content:', panelContent.result.value);
+  for (const target of devtoolsExtensionTargets) {
+    console.log(`Examining extension DevTools target: ${target.url()}`);
+    try {
+      const page = await target.page();
+      if (page) {
+        console.log('Extension DevTools page loaded:', await page.evaluate(() => document.readyState === 'complete'));
+        console.log('Extension DevTools page title:', await page.title());
+        console.log('Extension DevTools page content:', await page.content());
+      } else {
+        console.log('Unable to get page for this target');
+      }
+    } catch (error) {
+      console.log(`Error accessing extension DevTools page: ${error.message}`);
+    }
+  }
 
-  // Perform your tests here...
-  // For example, you can interact with your extension's UI:
-  await client.send('Runtime.evaluate', {
-    expression: `
-      // Replace this with actual interactions with your extension's UI
-      const searchInput = document.querySelector('#searchInput');
-      if (searchInput) searchInput.value = 'TestComponent';
+  if (devtoolsExtensionTargets.length === 0) {
+    console.log('No extension DevTools pages found');
+  }
 
-      const searchButton = document.querySelector('#searchButton');
-      if (searchButton) searchButton.click();
-    `
-  });
+  // Modify the background script section
+  const backgroundTargets = targets.filter(t => t.type() === 'service_worker' && t.url().includes('background.js'));
+  console.log(`Found ${backgroundTargets.length} background script targets`);
 
-  // Wait for any asynchronous operations in your extension
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  for (const target of backgroundTargets) {
+    console.log(`Examining background script target: ${target.url()}`);
+    try {
+      const worker = await target.worker();
+      if (worker) {
+        console.log('Background script is running');
+        worker.on('console', msg => console.log('Background console:', msg.text()));
+      } else {
+        console.log('Unable to get worker for this background script target');
+      }
+    } catch (error) {
+      console.log(`Error accessing background script: ${error.message}`);
+    }
+  }
 
-  // Check the results of your interaction
-  const searchResults = await client.send('Runtime.evaluate', {
-    expression: `
-      // Replace this with actual checks for your extension's behavior
-      const results = document.querySelector('#searchResults');
-      results ? results.textContent : 'No results found';
-    `
-  });
-
-  console.log('Search results:', searchResults.result.value);
+  if (backgroundTargets.length === 0) {
+    console.log('No background script targets found');
+  }
 
   await browser.close();
 }

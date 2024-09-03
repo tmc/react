@@ -129,13 +129,51 @@
             });
 
             // Force a commit if possible
+            console.log("existingHook", existingHook, "existingHook.getFiberRoots", existingHook.getFiberRoots, "existingHook.onCommitFiberRoot", existingHook.onCommitFiberRoot);
             if (existingHook.getFiberRoots && existingHook.onCommitFiberRoot) {
                 existingHook.getFiberRoots(1).forEach(root => {
                     existingHook.onCommitFiberRoot(1, root);
                 });
             }
+        } else {
+          debugLog('No existing DevTools hook found, setting up standalone hook');
+          // If no existing hook, we need to make sure React will use our hook
+          window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = hook;
+
+          // Attempt to detect and inject into an already-loaded React instance
+          console.log("window.React", window.React);
+          if (window.React) {
+          console.log("window.React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED", window.React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED);
+          }
+          if (window.React && window.React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED) { // ct 4 eva
+              const renderer = window.React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.ReactCurrentDispatcher;
+            console.log("renderer", renderer);
+              if (renderer) {
+                  debugLog('Detected already-loaded React instance, injecting renderer');
+                  hook.inject(renderer);
+              }
+          }
         }
 
+        // Set up a MutationObserver to detect if React loads after our hook
+        const observer = new MutationObserver(() => {
+            if (window.React && !hook.hasInjectedRenderer) {
+                debugLog('React detected after hook injection, attempting to inject');
+                if (window.React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED) {
+                    const renderer = window.React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.ReactCurrentDispatcher;
+                    if (renderer) {
+                        hook.inject(renderer);
+                        hook.hasInjectedRenderer = true;
+                        observer.disconnect();
+                    }
+                }
+            }
+        });
+
+        observer.observe(document.documentElement, {
+            childList: true,
+            subtree: true
+        });
         debugLog('Hook injected successfully');
     }
 

@@ -1,7 +1,62 @@
 # Minimal React DevTools
 
 ## Project Overview
-Minimal React DevTools is a lightweight Chrome extension that provides essential React debugging capabilities without interfering with the official React DevTools. It offers a streamlined interface for inspecting React component hierarchies and state.
+
+Minimal React DevTools is a lightweight, hackable Chrome extension designed to provide essential React debugging capabilities. It offers a streamlined interface for inspecting React component hierarchies and state, serving as both a useful tool and an excellent starting point for custom DevTools development.
+
+### Why Minimal React DevTools?
+
+1. **Lightweight Alternative**: Provides core functionality with minimal overhead, ideal for performance-sensitive scenarios.
+
+2. **Coexistence with Official DevTools**: Can run alongside the official React DevTools without conflicts.
+
+3. **Focus on Essential Features**: Offers a simpler, more intuitive interface for common debugging tasks.
+
+4. **Performance Optimization**: Designed with performance in mind, suitable for large-scale React applications.
+
+5. **Educational Tool**: Serves as a learning resource for understanding React debugging internals.
+
+6. **Hackable and Extensible**: Built to be forked, modified, and extended by the community.
+
+### Fork, Hack, and Build!
+
+We strongly encourage developers to fork this project and use it as a foundation for building custom React debugging tools. Here's why:
+
+- **Simplified Codebase**: Easy to understand and modify, perfect for experimentation.
+- **Modular Design**: Add new features or modify existing ones with minimal friction.
+- **Learning Opportunity**: Ideal for developers looking to deep-dive into browser extension development or React internals.
+- **Custom Tooling**: Tailor the DevTools to your specific project needs or workflow.
+
+#### Ideas for Extensions:
+
+- Add support for your favorite state management library
+- Implement custom visualization for your app's component structure
+- Create specialized debugging features for your team's common pain points
+- Integrate with your favorite LLM tooling.
+
+### Comparison with Official React DevTools
+
+| Feature | Minimal React DevTools | Official React DevTools |
+|---------|------------------------|--------------------------|
+| Component Tree Inspection | ✅ | ✅ |
+| Props and State Viewing | ✅ | ✅ |
+| Component Highlighting | ✅ | ✅ |
+| Performance Impact | Low | Moderate |
+| Advanced Profiling | ❌ | ✅ |
+| Hook Inspection | Basic | Advanced |
+| Can Run Alongside Other Versions | ✅ | ❌ |
+| Easily Hackable | ✅ | ❌ |
+
+### When to Use Minimal React DevTools
+
+- As a starting point for custom React debugging tools
+- When working on performance-sensitive applications
+- In environments where the official DevTools cause conflicts
+- For quick, focused debugging sessions
+- As a learning tool for understanding React internals
+- When a lighter, less feature-heavy tool is preferred
+
+Minimal React DevTools complements the React development ecosystem by providing a streamlined, hackable alternative to the official DevTools. Whether you're using it as-is, or as a foundation for your own custom tooling, we hope it enhances your React development experience.
 
 ## Basic Component Diagram
 
@@ -163,6 +218,8 @@ make debug-test
 
 ### Basic Message Flow
 
+Let's start with a simple overview of how messages flow between the main components:
+
 ```mermaid
 sequenceDiagram
     participant WebPage as Web Page
@@ -175,7 +232,14 @@ sequenceDiagram
     DevTools->>DevTools: 4. Update UI
 ```
 
+This basic flow shows the high-level interaction between the three main parts of our system:
+1. The Web Page, where React updates occur
+2. The Extension, which acts as an intermediary
+3. The DevTools, where the UI is updated to reflect changes
+
 ### Intermediate Message Flow
+
+Now, let's look at a more detailed view of how messages flow, including the specific components involved:
 
 ```mermaid
 graph TD
@@ -206,7 +270,16 @@ graph TD
     PanelJS -.->|5. User Interaction| InjectJS
 ```
 
-### Slightly More Advanced Message Flow
+This intermediate flow provides more detail:
+1. React events in the Web Page trigger updates
+2. `inject.js` captures these updates and sends them to the Extension
+3. `background.js` in the Extension forwards messages to the DevTools
+4. `devtools.js` receives messages and updates `panel.js`
+5. User interactions in `panel.js` can trigger messages back to `inject.js`
+
+### Advanced Message and Data Flow
+
+For a more comprehensive view of the system, including data stores and APIs, let's examine this advanced diagram:
 
 ```mermaid
 graph TD
@@ -216,27 +289,44 @@ graph TD
         InjectJS["inject.js"]
         DOMInterface["DOM Interface"]
     end
+
     subgraph Extension["Extension"]
         BackgroundJS["background.js"]
         MessageQueue["Message Queue"]
         StateStore["State Store"]
     end
+
     subgraph DevTools["DevTools"]
         DevtoolsJS["devtools.js"]
         PanelJS["panel.js"]
     end
+
     ExtensionAPI["Extension API"]
-    ReactApp --> FiberTree
-    FiberTree --> InjectJS
-    InjectJS <--> MessageQueue
-    MessageQueue <--> DevtoolsJS
-    DevtoolsJS <--> PanelJS
-    PanelJS --> DevtoolsJS
-    InjectJS <--> DOMInterface
-    StateStore <--> MessageQueue
-    ExtensionAPI <--> BackgroundJS
-    ExtensionAPI <--> DevtoolsJS
+
+    ReactApp -->|1. Updates| FiberTree
+    FiberTree -->|2. Changes| InjectJS
+    InjectJS <-->|3. Messages| MessageQueue
+    MessageQueue <-->|4. Processed Messages| DevtoolsJS
+    DevtoolsJS <-->|5. UI Updates| PanelJS
+    PanelJS -->|6. User Actions| DevtoolsJS
+    InjectJS <-->|7. DOM Interactions| DOMInterface
+    StateStore <-->|8. Caching| MessageQueue
+    ExtensionAPI <-->|9. API Calls| BackgroundJS
+    ExtensionAPI <-->|10. API Calls| DevtoolsJS
 ```
+
+This advanced flow illustrates several key aspects of the system:
+
+1. The React App updates its Fiber Tree, which represents the component hierarchy.
+2. `inject.js` observes changes in the Fiber Tree and serializes them.
+3. Messages are sent to and from the Extension's Message Queue, which helps manage asynchronous communication.
+4. The DevTools scripts process these messages and update the UI accordingly.
+5. User actions in the DevTools panel can trigger messages back through the system.
+6. The DOM Interface allows for direct manipulation of the webpage for features like highlighting components.
+7. A State Store in the Extension helps cache data for improved performance.
+8. The Extension API provides a bridge to Chrome's extension capabilities, used by both background and DevTools scripts.
+
+This diagram showcases the cyclical nature of data flow in the extension, with information constantly moving between the React application, the extension's background processes, and the DevTools UI.
 
 ## Contributing
 
